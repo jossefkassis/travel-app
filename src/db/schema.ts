@@ -68,7 +68,7 @@ export const attachmentEntityEnum = pgEnum('attachment_entity_type', [
   'taxi_service',
   'organizer',
 ]);
-
+//truu
 export const attachmentRoleEnum = pgEnum('attachment_role', [
   'GALLERY',
   'MAIN',
