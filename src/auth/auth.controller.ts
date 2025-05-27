@@ -36,6 +36,11 @@ export class AuthController {
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
   }
+  @Post('admin-login')
+  @UseGuards(LocalAuthGuard)
+  async adminLogin(@Body() loginDto: LoginDto) {
+    return this.authService.adminLogin(loginDto);
+  }
 
   @Post('register')
   @UseInterceptors(FileInterceptor('avatar'))
@@ -68,6 +73,7 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   async logout(@CurrentUser() user: any) {
+    console.log('here');
     if (!user?.jti) {
       throw new BadRequestException('Invalid token: missing jti');
     }

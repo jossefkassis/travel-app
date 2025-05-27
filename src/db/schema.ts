@@ -66,6 +66,13 @@ export const attachmentEntityEnum = pgEnum('attachment_entity_type', [
   'event',
   'attraction',
   'taxi_service',
+  'organizer',
+]);
+
+export const attachmentRoleEnum = pgEnum('attachment_role', [
+  'GALLERY',
+  'MAIN',
+  'ICON',
 ]);
 
 /* helper */
@@ -84,6 +91,7 @@ export const users = pgTable('users', {
   role: userRoleEnum('role').default('user').notNull(),
   isActive: boolean('is_active').default(true),
   createdAt: now(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
 export const sessions = pgTable('sessions', {
@@ -119,7 +127,7 @@ export const wallets = pgTable(
 /* single ledger for top-ups, bookings, refunds, admin adjusts */
 export const userTransactions = pgTable('user_transactions', {
   id: serial('id').primaryKey(),
-  walletId: uuid('wallet_id').references(() => wallets.userId, {
+  walletId: uuid('wallet_id').references(() => wallets.id, {
     onDelete: 'cascade',
   }),
 
@@ -160,22 +168,24 @@ export const userAvatars = pgTable('user_avatars', {
 });
 
 // 3. User Private Gallery
-export const userPrivateFiles = pgTable(
-  'user_private_files',
-  {
-    id: serial('id').primaryKey(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    fileObjectId: integer('file_object_id')
-      .notNull()
-      .unique()
-      .references(() => fileObjects.id),
-    encryptedKey: text('encrypted_key'), // For client-side encryption
-    createdAt: timestamp('created_at').defaultNow(),
-  },
-  (t) => [index('owner_idx').on(t.userId)],
-);
+
+export const userSecureFiles = pgTable('user_secure_files', {
+  id: serial('id').primaryKey(),
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+
+  objectKey: varchar('object_key', { length: 255 }).notNull(),
+  bucket: varchar('bucket', { length: 50 }).notNull(),
+
+  mime: varchar('mime', { length: 80 }).notNull(),
+  size: integer('size'),
+  encryptedKey: text('encrypted_key').notNull(), // Only the app can decrypt this
+
+  synced: boolean('synced').default(false),
+  lastSyncedAt: timestamp('last_synced_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
 
 export const attachments = pgTable(
   'attachments',
@@ -185,7 +195,7 @@ export const attachments = pgTable(
     }),
     entityType: attachmentEntityEnum('entity_type').notNull(),
     entityId: integer('entity_id').notNull(),
-    role: varchar('role', { length: 20 }).default('GALLERY'),
+    role: attachmentRoleEnum('role').default('GALLERY'),
     sort: integer('sort').default(0),
   },
   (t) => [primaryKey({ columns: [t.objectId, t.entityType, t.entityId] })],
@@ -222,6 +232,8 @@ export const countries = pgTable('countries', {
   code: varchar('code', { length: 2 }).primaryKey(), // ISO-3166-1
   name: varchar('name', { length: 90 }).notNull(),
   is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   createdAt: now(),
 });
 
@@ -234,6 +246,8 @@ export const cities = pgTable('cities', {
   lat: numeric('lat', { precision: 8, scale: 5 }),
   lon: numeric('lon', { precision: 8, scale: 5 }),
   is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   createdAt: now(),
 });
 
@@ -250,6 +264,8 @@ export const hotels = pgTable('hotels', {
   lat: numeric('lat', { precision: 8, scale: 5 }),
   lon: numeric('lon', { precision: 8, scale: 5 }),
   is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   createdAt: now(),
 });
 
@@ -261,37 +277,12 @@ export const rooms = pgTable('rooms', {
   label: varchar('label', { length: 60 }),
   personCap: integer('person_cap').default(2),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
+  discountPrice: numeric('discount_price', { precision: 10, scale: 2 }),
   is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   createdAt: now(),
 });
-
-/* room reservations with overlap protection */
-export const roomBookings = pgTable(
-  'room_booking',
-  {
-    id: serial('id'),
-    roomId: integer('room_id').references(() => rooms.id, {
-      onDelete: 'cascade',
-    }),
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
-
-    dateFrom: timestamp('date_from').notNull(),
-    dateTo: timestamp('date_to').notNull(), // exclusive upper bound
-    status: bookingStatusEnum('status').default('CONFIRMED'),
-
-    total: numeric('total', { precision: 10, scale: 2 }),
-    paymentTx: integer('payment_tx'),
-    refundTx: integer('refund_tx'),
-    createdAt: now(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.id] }),
-    sql`EXCLUDE USING gist (
-           room_id WITH =,
-           daterange(date_from, date_to, '[]') WITH && )
-         WHERE (status = 'CONFIRMED')`,
-  ],
-);
 
 /* ─────────────────────────────── FLIGHTS ────────────────────────────── */
 export const airports = pgTable('airports', {
@@ -303,6 +294,8 @@ export const airports = pgTable('airports', {
   lat: numeric('lat', { precision: 8, scale: 5 }),
   lon: numeric('lon', { precision: 8, scale: 5 }),
   is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   createdAt: now(),
 });
 
@@ -336,21 +329,10 @@ export const flightInventory = pgTable(
     seatsTotal: integer('seats_total').notNull(),
     seatsSold: integer('seats_sold').default(0),
     price: numeric('price', { precision: 10, scale: 2 }).notNull(),
+    discountPrice: numeric('discount_price', { precision: 10, scale: 2 }),
   },
   (t) => [primaryKey({ columns: [t.flightId, t.classId] })],
 );
-
-export const flightBookings = pgTable('flight_booking', {
-  id: serial('id').primaryKey(),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  flightId: integer('flight_id').references(() => flights.id, {
-    onDelete: 'restrict',
-  }),
-  classId: integer('class_id').references(() => seatClasses.id),
-  seats: integer('seats').default(1),
-  totalPaid: numeric('total_paid', { precision: 12, scale: 2 }),
-  bookedAt: now(),
-});
 
 /* ─────────────────────────────── TAXI ───────────────────────────────── */
 export const taxiServices = pgTable('taxi_service', {
@@ -360,6 +342,8 @@ export const taxiServices = pgTable('taxi_service', {
   perKm: numeric('per_km', { precision: 8, scale: 2 }).notNull(),
   perMin: numeric('per_min', { precision: 8, scale: 2 }).notNull(),
   is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   createdAt: now(),
 });
 
@@ -379,32 +363,58 @@ export const taxiOrders = pgTable('taxi_order', {
 });
 
 /* ───────────────────────────── EVENTS / TICKETS ─────────────────────── */
+export const organizers = pgTable('organizers', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 120 }).notNull(),
+  description: text('description'),
+  website: varchar('website', { length: 255 }),
+  contactEmail: varchar('contact_email', { length: 255 }),
+  is_active: boolean('is_active').default(true),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
+  createdAt: now(),
+});
+
 export const events = pgTable('events', {
   id: serial('id').primaryKey(),
   cityId: integer('city_id').references(() => cities.id, {
     onDelete: 'restrict',
   }),
+  organizerId: integer('organizer_id').references(() => organizers.id, {
+    onDelete: 'cascade',
+  }),
   title: varchar('title', { length: 140 }).notNull(),
   description: text('description'),
   venue: varchar('venue', { length: 140 }),
   startsAt: timestamp('starts_at').notNull(),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   endsAt: timestamp('ends_at'),
   price: numeric('price', { precision: 10, scale: 2 }).notNull(),
+  discountPrice: numeric('discount_price', { precision: 10, scale: 2 }),
   capacity: integer('capacity'),
   is_active: boolean('is_active').default(true),
   createdAt: now(),
 });
 
-export const eventTickets = pgTable('event_ticket', {
+export const eventTags = pgTable('event_tags', {
   id: serial('id').primaryKey(),
-  eventId: integer('event_id').references(() => events.id, {
-    onDelete: 'cascade',
-  }),
-  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  qty: integer('qty').default(1),
-  total: numeric('total', { precision: 10, scale: 2 }),
-  boughtAt: now(),
+  name: varchar('name', { length: 50 }).notNull().unique(),
+  slug: varchar('slug', { length: 60 }).notNull().unique(),
 });
+
+export const eventTagMappings = pgTable(
+  'event_tag_mappings',
+  {
+    eventId: integer('event_id')
+      .notNull()
+      .references(() => events.id, { onDelete: 'cascade' }),
+    tagId: integer('tag_id')
+      .notNull()
+      .references(() => eventTags.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.eventId, t.tagId] })],
+);
 
 /* ───────────────────────────── ATTRACTIONS ──────────────────────────── */
 export const attractions = pgTable('attraction', {
@@ -416,6 +426,8 @@ export const attractions = pgTable('attraction', {
   description: text('description'),
   lat: numeric('lat', { precision: 8, scale: 5 }),
   lon: numeric('lon', { precision: 8, scale: 5 }),
+  avgRating: numeric('avg_rating', { precision: 3, scale: 2 }).default('0.00'),
+  ratingCount: integer('rating_count').default(0),
   is_active: boolean('is_active').default(true),
   createdAt: now(),
 });
@@ -424,6 +436,7 @@ export const attractions = pgTable('attraction', {
 export const refundPolicy = pgTable('refund_policy', {
   daysBefore: integer('days_before').primaryKey(), // 7,5,3,1,0
   percent: integer('percent').notNull(), // 100,80,50,20,0
+  description: varchar('description', { length: 255 }),
 });
 
 export const orders = pgTable('orders', {
@@ -470,6 +483,46 @@ export const cartItems = pgTable('cart_items', {
   quantity: integer('quantity').default(1),
   price: numeric('price', { precision: 10, scale: 2 }),
   addedAt: timestamp('added_at').defaultNow(),
+  lastUpdatedAt: timestamp('last_updated_at').defaultNow(),
+});
+
+export const chats = pgTable('chats', {
+  id: serial('id').primaryKey(),
+
+  userId: uuid('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+
+  status: varchar('status', { length: 20 }).default('OPEN'), // OPEN, CLOSED, ESCALATED
+  isReadByAdmin: boolean('is_read_by_admin').default(false),
+  isReadByUser: boolean('is_read_by_user').default(true),
+
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+export const messages = pgTable('messages', {
+  id: serial('id').primaryKey(),
+
+  chatId: integer('chat_id')
+    .notNull()
+    .references(() => chats.id, { onDelete: 'cascade' }),
+
+  sender: varchar('sender', { length: 10 }).notNull(), // 'USER' or 'ADMIN'
+  message: text('message').notNull(),
+
+  // Optional linkage to auto-response
+  faqId: integer('faq_id').references(() => faq.id, { onDelete: 'set null' }),
+
+  createdAt: timestamp('created_at').defaultNow(),
+});
+export const faq = pgTable('faq', {
+  id: serial('id').primaryKey(),
+
+  question: text('question').notNull(),
+  answer: text('answer').notNull(),
+  isActive: boolean('is_active').default(true),
+
+  createdAt: timestamp('created_at').defaultNow(),
 });
 
 /* ─────────────────────────── Relations ─────────────────────── */
@@ -491,10 +544,6 @@ export const fileObjectsRelations = relations(fileObjects, ({ one, many }) => ({
     fields: [fileObjects.id],
     references: [userAvatars.fileObjectId],
   }),
-  privateFile: one(userPrivateFiles, {
-    fields: [fileObjects.id],
-    references: [userPrivateFiles.fileObjectId],
-  }),
   attachments: many(attachments),
 }));
 
@@ -511,15 +560,11 @@ export const userAvatarsRelations = relations(userAvatars, ({ one }) => ({
 
 // User Private Files relations
 export const userPrivateFilesRelations = relations(
-  userPrivateFiles,
+  userSecureFiles,
   ({ one }) => ({
     user: one(users, {
-      fields: [userPrivateFiles.userId],
+      fields: [userSecureFiles.userId],
       references: [users.id],
-    }),
-    fileObject: one(fileObjects, {
-      fields: [userPrivateFiles.fileObjectId],
-      references: [fileObjects.id],
     }),
   }),
 );
@@ -546,7 +591,7 @@ export const userTransactionsRelations = relations(
   ({ one }) => ({
     wallet: one(wallets, {
       fields: [userTransactions.walletId],
-      references: [wallets.userId],
+      references: [wallets.id],
     }),
   }),
 );
@@ -583,18 +628,6 @@ export const roomsRelations = relations(rooms, ({ one }) => ({
   }),
 }));
 
-// RoomBookings → Users & Rooms
-export const roomBookingsRelations = relations(roomBookings, ({ one }) => ({
-  user: one(users, {
-    fields: [roomBookings.userId],
-    references: [users.id],
-  }),
-  room: one(rooms, {
-    fields: [roomBookings.roomId],
-    references: [rooms.id],
-  }),
-}));
-
 // Flights → Airports (origin & destination)
 export const flightsRelations = relations(flights, ({ one }) => ({
   originAirport: one(airports, {
@@ -622,22 +655,6 @@ export const flightInventoryRelations = relations(
   }),
 );
 
-// FlightBookings → Users, Flights, SeatClasses
-export const flightBookingsRelations = relations(flightBookings, ({ one }) => ({
-  user: one(users, {
-    fields: [flightBookings.userId],
-    references: [users.id],
-  }),
-  flight: one(flights, {
-    fields: [flightBookings.flightId],
-    references: [flights.id],
-  }),
-  seatClass: one(seatClasses, {
-    fields: [flightBookings.classId],
-    references: [seatClasses.id],
-  }),
-}));
-
 // TaxiOrders → Users & TaxiServices
 export const taxiOrdersRelations = relations(taxiOrders, ({ one }) => ({
   user: one(users, {
@@ -650,24 +667,35 @@ export const taxiOrdersRelations = relations(taxiOrders, ({ one }) => ({
   }),
 }));
 
-// Events → Cities
-export const eventsRelations = relations(events, ({ one }) => ({
+// Events
+export const organizersRelations = relations(organizers, ({ many }) => ({
+  events: many(events),
+}));
+
+export const eventTagMappingsRelations = relations(
+  eventTagMappings,
+  ({ one }) => ({
+    event: one(events, {
+      fields: [eventTagMappings.eventId],
+      references: [events.id],
+    }),
+    tag: one(eventTags, {
+      fields: [eventTagMappings.tagId],
+      references: [eventTags.id],
+    }),
+  }),
+);
+
+export const eventsRelations = relations(events, ({ one, many }) => ({
   city: one(cities, {
     fields: [events.cityId],
     references: [cities.id],
   }),
-}));
-
-// EventTickets → Events & Users
-export const eventTicketsRelations = relations(eventTickets, ({ one }) => ({
-  event: one(events, {
-    fields: [eventTickets.eventId],
-    references: [events.id],
+  organizer: one(organizers, {
+    fields: [events.organizerId],
+    references: [organizers.id],
   }),
-  user: one(users, {
-    fields: [eventTickets.userId],
-    references: [users.id],
-  }),
+  tags: many(eventTagMappings),
 }));
 
 // Attractions → Cities
@@ -714,19 +742,32 @@ export const usersRelations = relations(users, ({ one, many }) => ({
     fields: [users.id],
     references: [userAvatars.userId],
   }),
-  privateFiles: many(userPrivateFiles),
+  privateFiles: many(userSecureFiles),
 
   // Social
   favorites: many(favourites),
   reviews: many(reviews),
 
-  // Bookings
-  roomBookings: many(roomBookings),
-  flightBookings: many(flightBookings),
   taxiOrders: many(taxiOrders),
-  eventTickets: many(eventTickets),
-
   // Commerce
   orders: many(orders),
   cartItems: many(cartItems),
+}));
+export const chatsRelations = relations(chats, ({ one, many }) => ({
+  user: one(users, {
+    fields: [chats.userId],
+    references: [users.id],
+  }),
+  messages: many(messages),
+}));
+
+export const messagesRelations = relations(messages, ({ one }) => ({
+  chat: one(chats, {
+    fields: [messages.chatId],
+    references: [chats.id],
+  }),
+  faq: one(faq, {
+    fields: [messages.faqId],
+    references: [faq.id],
+  }),
 }));

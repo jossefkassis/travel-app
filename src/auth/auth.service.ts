@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -129,6 +130,64 @@ export class AuthService {
 
     if (!userWithRelations) {
       throw new NotFoundException('User not found');
+    }
+
+    // Construct avatar URL if exists
+    let avatarUrl: string | null = null;
+    if (userWithRelations.avatar?.fileObject) {
+      const fileObject = userWithRelations.avatar.fileObject;
+      avatarUrl = `/${fileObject.bucket}/${fileObject.objectKey}`;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { avatar, ...userWithoutAvatar } = userWithRelations;
+    return {
+      user: {
+        ...userWithoutAvatar,
+        avatar: avatarUrl,
+      },
+      tokens: await this.generateTokens(user),
+    };
+  }
+  async adminLogin(loginDto: LoginDto) {
+    const user = await this.validateUser(
+      loginDto.emailOrUsername,
+      loginDto.password,
+    );
+
+    // Get user with relations (wallet and avatar)
+    const userWithRelations = await this.db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, user.id),
+
+      // ⬇️  Only the columns you really need
+      columns: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        phone: true,
+        provider: true,
+        providerId: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+
+      with: {
+        wallet: {
+          columns: { balance: true, currency: true },
+        },
+        avatar: {
+          with: { fileObject: true },
+        },
+      },
+    });
+
+    if (!userWithRelations) {
+      throw new NotFoundException('User not found');
+    }
+    if (userWithRelations.role !== 'admin') {
+      throw new ForbiddenException('user is not admin');
     }
 
     // Construct avatar URL if exists
