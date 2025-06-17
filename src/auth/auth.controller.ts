@@ -67,6 +67,7 @@ export class AuthController {
     )
     avatar?: Express.Multer.File,
   ) {
+    console.log('here');
     return await this.authService.register(registerDto, avatar);
   }
 
