@@ -9,6 +9,7 @@ import {
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { eq, sql, desc } from 'drizzle-orm';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 @Injectable()
 export class StorageService {
@@ -73,6 +74,30 @@ export class StorageService {
     );
   }
 
+  async deleteFileObject(fileObjectId: number): Promise<{ message: string }> {
+    // 1. Check if file exists
+    const file = await this.db.query.fileObjects.findFirst({
+      where: (fo, { eq }) => eq(fo.id, fileObjectId),
+    });
+    if (!file) throw new NotFoundException('File not found');
+
+    // 2. Check for attachments
+    const attachment = await this.db.query.attachments.findFirst({
+      where: (att, { eq }) => eq(att.objectId, fileObjectId),
+    });
+    if (attachment) {
+      throw new BadRequestException('File is attached and cannot be deleted');
+    }
+
+    // 3. Delete from S3
+    await this.delete(file.objectKey, file.bucket);
+
+    // 4. Delete from DB
+    await this.db.delete(schema.fileObjects).where(eq(schema.fileObjects.id, fileObjectId));
+
+    return { message: 'File deleted from DB and S3' };
+  }
+
   /**
    * Retrieves paginated list of all public file objects.
    * This is for files not tied to a specific owner, or if ownerId is nullable in schema.
@@ -92,13 +117,27 @@ export class StorageService {
     const totalCount = totalCountResult[0].count;
 
     // Fetch paginated files
-    const files = await this.db
+    // Fetch files and for each, check if it has attachments
+    const filesRaw = await this.db
       .select()
       .from(schema.fileObjects)
-      .where(eq(schema.fileObjects.scope, 'PUBLIC')) // Filter by public scope
-      .orderBy(desc(schema.fileObjects.uploadedAt)) // Order by upload date
+      .where(eq(schema.fileObjects.scope, 'PUBLIC'))
+      .orderBy(desc(schema.fileObjects.uploadedAt))
       .limit(limit)
       .offset(offset);
+
+    // For each file, check if it has attachments
+    const files = await Promise.all(
+      filesRaw.map(async (file) => {
+        const attachment = await this.db.query.attachments.findFirst({
+          where: (att, { eq }) => eq(att.objectId, file.id),
+        });
+        return {
+          ...file,
+          hasAttachment: !!attachment,
+        };
+      }),
+    );
 
     return {
       files,

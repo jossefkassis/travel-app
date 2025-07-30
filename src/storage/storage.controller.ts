@@ -9,18 +9,18 @@ import {
   UploadedFiles,
   UseGuards,
   UseInterceptors,
+  Param,
+  Delete,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { StorageService } from './storage.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
-import { RolesGuard } from 'src/common/guards/roles.guard';
-import { Roles, UserRole } from 'src/common/decorators/roles.decorator';
 
 @Controller('storage')
 export class StorageController {
   constructor(private readonly storageServise: StorageService) {}
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @UseGuards(JwtAuthGuard)
   @Post('admin/upload-public')
   @UseInterceptors(FilesInterceptor('images'))
   async uploadFiles(
@@ -34,9 +34,8 @@ export class StorageController {
     return await this.storageServise.publicUpload(files);
   }
 
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @Get('admin/files/public') // Changed path to be more specific
+  @UseGuards(JwtAuthGuard)
+  @Get('admin/files/public')
   async getPublicFiles(
     @Query('page') page: string = '1',
     @Query('limit') limit: string = '10',
@@ -65,5 +64,11 @@ export class StorageController {
       pageNum,
       limitNum,
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('admin/file/:id')
+  async deleteFile(@Param('id', ParseIntPipe) id: number) {
+    return this.storageServise.deleteFileObject(id);
   }
 }

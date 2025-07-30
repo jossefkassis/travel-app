@@ -6,6 +6,7 @@ import { StorageModule } from 'src/storage/storage.module';
 
 @Module({
   imports: [DatabaseModule, StorageModule],
+  exports: [UsersService],
   controllers: [UsersController],
   providers: [UsersService],
 })

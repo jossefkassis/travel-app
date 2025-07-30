@@ -1,6 +1,7 @@
 // dto/pagination-query.dto.ts
-import { IsOptional, IsInt, Min, IsEnum } from 'class-validator';
+import { IsOptional, IsInt, Min, IsEnum, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
 
 export enum SortBy {
   NAME = 'name',
@@ -32,4 +33,14 @@ export class PaginationQueryDto {
   @IsOptional()
   @IsEnum(SortOrder)
   order?: SortOrder = SortOrder.DESC;
+  @ApiProperty({
+    example: 2,
+    description:
+      'Filter users by Role ID (e.g., 1=Super Admin, 2=Customer, 3=Guide)',
+    required: false,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  roleId?: number;
 }

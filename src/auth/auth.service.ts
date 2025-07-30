@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   ConflictException,
   ForbiddenException,
@@ -43,12 +44,12 @@ export class AuthService {
     });
 
     if (!user || !user.password) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid not found credentials');
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid credentials unauth');
     }
 
     return user;
@@ -100,30 +101,32 @@ export class AuthService {
       loginDto.password,
     );
 
-    // Get user with relations (wallet and avatar)
+    // Get user with relations (wallet, avatar, and role name)
     const userWithRelations = await this.db.query.users.findFirst({
       where: (u, { eq }) => eq(u.id, user.id),
 
-      // ⬇️  Only the columns you really need
+      // ⬇️ Only the columns you really need
       columns: {
         id: true,
         name: true,
         username: true,
         email: true,
-        phone: true,
-        provider: true,
-        providerId: true,
-        role: true,
+        phone: true, // Use phone_number as per schema
         isActive: true,
         createdAt: true,
+        roleId: true, // Select roleId from users table
       },
 
       with: {
-        wallet: {
+        wallets: {
           columns: { balance: true, currency: true },
         },
-        avatar: {
+        userAvatars: {
           with: { fileObject: true },
+        },
+        role: {
+          // Fetch the related role to get its name
+          columns: { name: true },
         },
       },
     });
@@ -134,51 +137,64 @@ export class AuthService {
 
     // Construct avatar URL if exists
     let avatarUrl: string | null = null;
-    if (userWithRelations.avatar?.fileObject) {
-      const fileObject = userWithRelations.avatar.fileObject;
+    if (userWithRelations.userAvatars?.fileObject) {
+      const fileObject = userWithRelations.userAvatars.fileObject;
       avatarUrl = `/${fileObject.bucket}/${fileObject.objectKey}`;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { avatar, ...userWithoutAvatar } = userWithRelations;
+    const { userAvatars, role, ...userWithoutAvatar } = userWithRelations; // Destructure role for separate use
     return {
       user: {
         ...userWithoutAvatar,
         avatar: avatarUrl,
+        role: role?.name, // Return the role name
       },
       tokens: await this.generateTokens(user),
     };
   }
+
   async adminLogin(loginDto: LoginDto) {
     const user = await this.validateUser(
       loginDto.emailOrUsername,
       loginDto.password,
     );
 
-    // Get user with relations (wallet and avatar)
+    // Get user with relations (wallet, avatar, and role name)
     const userWithRelations = await this.db.query.users.findFirst({
-      where: (u, { eq }) => eq(u.id, user.id),
+      where: eq(schema.users.id, user.id),
 
-      // ⬇️  Only the columns you really need
       columns: {
         id: true,
         name: true,
         username: true,
         email: true,
-        phone: true,
-        provider: true,
-        providerId: true,
-        role: true,
+        phone: true, // Assuming your schema column is named 'phone' or 'phone_number'
         isActive: true,
         createdAt: true,
+        roleId: true,
+        // Don't select password here for security
       },
 
       with: {
-        wallet: {
+        wallets: {
           columns: { balance: true, currency: true },
         },
-        avatar: {
+        userAvatars: {
           with: { fileObject: true },
+        },
+        role: {
+          columns: { id: true, name: true }, // Select role name
+          with: {
+            rolePermissions: {
+              columns: { permissionId: false, roleId: false }, // Don't need these join IDs
+              with: {
+                permission: {
+                  columns: { name: true, description: true }, // Select permission name and description
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -186,25 +202,34 @@ export class AuthService {
     if (!userWithRelations) {
       throw new NotFoundException('User not found');
     }
-    if (userWithRelations.role !== 'admin') {
-      throw new ForbiddenException('user is not admin');
+
+    // Check if the user's role is 'Super Admin'
+    if (userWithRelations.role?.name === 'Customer') {
+      // Compare against the role name
+      throw new ForbiddenException('User is not authorized as an admin');
     }
 
-    // Construct avatar URL if exists
     let avatarUrl: string | null = null;
-    if (userWithRelations.avatar?.fileObject) {
-      const fileObject = userWithRelations.avatar.fileObject;
+    if (userWithRelations.userAvatars?.fileObject) {
+      const fileObject = userWithRelations.userAvatars.fileObject;
       avatarUrl = `/${fileObject.bucket}/${fileObject.objectKey}`;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { avatar, ...userWithoutAvatar } = userWithRelations;
+    // Flatten permissions into a simple array of permission names
+    const permissions =
+      userWithRelations.role?.rolePermissions.map((rp) => rp.permission.name) ||
+      [];
+
+    const { userAvatars, role, ...userWithoutRelations } = userWithRelations;
+
     return {
       user: {
-        ...userWithoutAvatar,
+        ...userWithoutRelations,
         avatar: avatarUrl,
+        role: role?.name, // Return the role name
+        permissions: permissions, // Return the array of permission names
       },
-      tokens: await this.generateTokens(user),
+      tokens: await this.generateTokens(user), // Use the original 'user' object for token generation
     };
   }
 
@@ -230,6 +255,17 @@ export class AuthService {
       throw new ConflictException('Username already taken');
     }
 
+    // Fetch the Customer role ID
+    const customerRole = await this.db.query.roles.findFirst({
+      where: (roles, { eq }) => eq(roles.name, 'Customer'),
+    });
+
+    if (!customerRole) {
+      throw new NotFoundException(
+        'Customer role not found. Please ensure roles are seeded.',
+      );
+    }
+
     // Hash password
     const hashedPassword = await bcrypt.hash(createUserDto.password, 12);
 
@@ -241,8 +277,8 @@ export class AuthService {
         username: createUserDto.username,
         email: createUserDto.email,
         password: hashedPassword,
-        provider: 'local',
         isActive: true,
+        roleId: customerRole.id, // Assign Customer role on signup
       })
       .returning();
 
@@ -282,25 +318,43 @@ export class AuthService {
         currency: 'USD',
       })
       .returning();
+
+    // Re-fetch user with role relation to include the role name in the response
+    const userWithRole = await this.db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, user.id),
+      columns: {
+        id: true,
+        name: true,
+        username: true,
+        email: true,
+        phone: true,
+        isActive: true,
+        createdAt: true,
+        roleId: true,
+      },
+      with: {
+        role: {
+          columns: { name: true },
+        },
+      },
+    });
+
     return {
       user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        phone: user.phone,
-        provider: user.provider,
-        providerId: user.providerId,
-        isActive: user.isActive,
-        role: user.role,
-        createdAt: user.createdAt,
+        id: userWithRole?.id,
+        name: userWithRole?.name,
+        username: userWithRole?.username,
+        email: userWithRole?.email,
+        phone: userWithRole?.phone,
+        isActive: userWithRole?.isActive,
+        role: userWithRole?.role?.name, // Use the role name
+        createdAt: userWithRole?.createdAt,
         avatar: avatarUrl,
         wallet: {
           balance: wallet.balance,
           cuurency: wallet.currency,
         },
       },
-
       tokens: await this.generateTokens(user),
     };
   }
@@ -336,6 +390,7 @@ export class AuthService {
       throw new Error('Failed to logout');
     }
   }
+
   async logoutOthesr(jti: string, userId: string) {
     try {
       // First verify the session exists
@@ -368,46 +423,6 @@ export class AuthService {
       console.error('Error during logoutAll:', error);
       throw new Error('Failed to logout from all sessions');
     }
-  }
-  /**
-   * Validates or creates social login user
-   * @param profile - Social provider profile
-   * @returns User object
-   */
-  async validateSocialUser(profile: {
-    provider: string;
-    providerId: string;
-    email: string;
-    name: string;
-  }) {
-    let user = await this.db.query.users.findFirst({
-      where: (users, { eq }) => eq(users.email, profile.email),
-    });
-
-    if (!user) {
-      [user] = await this.db
-        .insert(schema.users)
-        .values({
-          name: profile.name,
-          email: profile.email,
-          provider: profile.provider,
-          providerId: profile.providerId,
-        })
-        .returning();
-    } else if (
-      user.provider !== profile.provider ||
-      user.providerId !== profile.providerId
-    ) {
-      await this.db
-        .update(schema.users)
-        .set({
-          provider: profile.provider,
-          providerId: profile.providerId,
-        })
-        .where(eq(schema.users.id, user.id));
-    }
-
-    return user;
   }
 
   /**

@@ -1,27 +1,26 @@
-import { IsArray, IsOptional, IsString, Length, IsInt } from 'class-validator';
-import { PartialType } from '@nestjs/swagger';
+import {
+  IsString,
+  IsNotEmpty,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  ArrayUnique,
+  IsISO31661Alpha2,
+  Length,
+  IsDateString,
+  Max,
+  Min,
+  IsEnum,
+} from 'class-validator';
+import { PartialType } from '@nestjs/mapped-types'; // Or '@nestjs/swagger' for OpenAPI generation
+// import { PartialType } from '@nestjs/swagger'; // If you're using Swagger for DTO inheritance
+
 import { CreateCountryDto } from './create-country.dto';
 
+// PartialType makes all properties of CreateCountryDto optional
 export class UpdateCountryDto extends PartialType(CreateCountryDto) {
-  @IsOptional()
-  @IsString()
-  @Length(2, 2)
-  code: string;
-
-  @IsOptional()
-  @IsString()
-  name: string;
-
-  @IsOptional()
-  is_active?: boolean;
-
-  // Make sure these are 'number' and validated as 'IsInt'
-  @IsOptional()
-  @IsInt() // <--- THIS IS THE CRUCIAL CHANGE
-  mainImageId?: number; // <--- This should be 'number'
-
-  @IsOptional()
-  @IsArray()
-  @IsInt({ each: true }) // <--- THIS IS THE CRUCIAL CHANGE
-  galleryImageIds?: number[]; // <--- This should be 'number[]'
+  // No need to redeclare properties unless you need to change their validation rules
+  // For example, if 'code' couldn't be updated, you'd remove it or override.
+  // For images, they are already optional in CreateCountryDto via IsOptional.
 }

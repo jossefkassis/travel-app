@@ -1,4 +1,5 @@
-import { IsArray, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsInt, IsOptional, IsString, IsNumber, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { LatLon } from 'src/interfaces/location.dto';
 
 export class CreateCityDto {
@@ -6,6 +7,8 @@ export class CreateCityDto {
   name: string;
   @IsInt()
   countryId: number;
+  @ValidateNested()
+  @Type(() => LatLon)
   location: LatLon;
   @IsOptional()
   is_active?: boolean;
@@ -13,6 +16,25 @@ export class CreateCityDto {
   avgRating?: number; // Will be defaulted by DB
   @IsOptional()
   ratingCount?: number; // Will be defaulted by DB
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsNumber()
+  avgMealPrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  radius?: number;
+
+  @IsOptional()
+  @IsNumber()
+  mealPricePerPerson?: number;
+
+  @IsOptional()
+  @IsNumber()
+  transportRatePerKm?: number;
 
   // Make sure these are 'number' and validated as 'IsInt'
   @IsOptional()

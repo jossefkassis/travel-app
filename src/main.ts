@@ -8,7 +8,15 @@ import * as cookieParser from 'cookie-parser';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: true });
 
-  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true, // strips unknown properties
+      transform: true, // <-- converts primitives
+      transformOptions: {
+        enableImplicitConversion: true, // lets class-transformer cast automatically
+      },
+    }),
+  );
   // eslint-disable-next-line @typescript-eslint/no-unsafe-call
   app.use(cookieParser());
   app.use(
