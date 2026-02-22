@@ -93,6 +93,17 @@ export class RoomTypesService {
             // location: true,
           }
         },
+        roomInventory: {
+          columns: {
+            id: true,
+            date: true,
+            totalRooms: true,
+            bookedRooms: true,
+            availableRooms: true,
+            updatedAt: true,
+          },
+          orderBy: [asc(schema.roomInventory.date)],
+        },
       },
       limit,
       offset,
@@ -111,7 +122,7 @@ export class RoomTypesService {
       },
     });
 
-    // Fetch images for each room type
+    // Fetch images for each room type and process inventory
     const roomTypeEntityTypeId = await this.getRoomTypeEntityTypeId();
     const roomTypesWithImages = await Promise.all(roomTypes.map(async (roomType) => {
       const attachments = await this.db.query.attachments.findMany({
@@ -128,8 +139,16 @@ export class RoomTypesService {
         if (att.role === 'MAIN' && att.fileObject) mainImage = att.fileObject;
         if (att.role === 'GALLERY' && att.fileObject) galleryImages.push(att.fileObject);
       }
+
+      // Process inventory data
+      const inventorySummary = this.processInventoryData(roomType.roomInventory);
       
-      return { ...roomType, mainImage, galleryImages };
+      return { 
+        ...roomType, 
+        mainImage, 
+        galleryImages,
+        inventorySummary,
+      };
     }));
 
     return {
@@ -170,6 +189,17 @@ export class RoomTypesService {
             // location: true,
           }
         },
+        roomInventory: {
+          columns: {
+            id: true,
+            date: true,
+            totalRooms: true,
+            bookedRooms: true,
+            availableRooms: true,
+            updatedAt: true,
+          },
+          orderBy: [asc(schema.roomInventory.date)],
+        },
       },
       columns: {
         id: true,
@@ -206,7 +236,80 @@ export class RoomTypesService {
       if (att.role === 'GALLERY' && att.fileObject) galleryImages.push(att.fileObject);
     }
 
-    return { ...roomType, mainImage, galleryImages };
+    // Process inventory data to show availability summary
+    const inventorySummary = this.processInventoryData(roomType.roomInventory);
+
+    return { 
+      ...roomType, 
+      mainImage, 
+      galleryImages,
+      inventorySummary,
+    };
+  }
+
+  private processInventoryData(inventory: any[]): {
+    totalDays: number;
+    availableDays: number;
+    fullyBookedDays: number;
+    partiallyBookedDays: number;
+    nextAvailableDate?: string;
+    availabilityByDate: Array<{
+      date: string;
+      totalRooms: number;
+      bookedRooms: number;
+      availableRooms: number;
+      occupancyRate: number;
+    }>;
+  } {
+    if (!inventory || inventory.length === 0) {
+      return {
+        totalDays: 0,
+        availableDays: 0,
+        fullyBookedDays: 0,
+        partiallyBookedDays: 0,
+        availabilityByDate: [],
+      };
+    }
+
+    let availableDays = 0;
+    let fullyBookedDays = 0;
+    let partiallyBookedDays = 0;
+    let nextAvailableDate: string | undefined;
+
+    const availabilityByDate = inventory.map(item => {
+      const occupancyRate = (item.bookedRooms / item.totalRooms) * 100;
+      
+      if (item.availableRooms === item.totalRooms) {
+        availableDays++;
+        if (!nextAvailableDate) {
+          nextAvailableDate = item.date;
+        }
+      } else if (item.availableRooms === 0) {
+        fullyBookedDays++;
+      } else {
+        partiallyBookedDays++;
+        if (!nextAvailableDate) {
+          nextAvailableDate = item.date;
+        }
+      }
+
+      return {
+        date: item.date,
+        totalRooms: item.totalRooms,
+        bookedRooms: item.bookedRooms,
+        availableRooms: item.availableRooms,
+        occupancyRate: Math.round(occupancyRate * 100) / 100, // Round to 2 decimal places
+      };
+    });
+
+    return {
+      totalDays: inventory.length,
+      availableDays,
+      fullyBookedDays,
+      partiallyBookedDays,
+      nextAvailableDate,
+      availabilityByDate,
+    };
   }
 
   async create(hotelId: number, createRoomTypeDto: CreateRoomTypeDto) {

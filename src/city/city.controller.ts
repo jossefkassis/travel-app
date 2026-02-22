@@ -15,7 +15,10 @@ import { CreateCityDto } from './dto/create-city.dto';
 import { UpdateCityDto } from './dto/update-city.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
-import { Permission, SetPermissions } from '../common/decorators/permissions.decorator';
+import {
+  Permission,
+  SetPermissions,
+} from '../common/decorators/permissions.decorator';
 
 @Controller('cities')
 export class CityController {
@@ -41,19 +44,17 @@ export class CityController {
   ) {
     const pageNum = page && !isNaN(Number(page)) ? parseInt(page, 10) : 1;
     const limitNum = limit && !isNaN(Number(limit)) ? parseInt(limit, 10) : 10;
-    return this.cityService.findAll(
-      pageNum,
-      limitNum,
-      orderBy,
-      orderDir,
-      {
-        countryId: countryId ? parseInt(countryId) : undefined,
-        isActive: isActive !== undefined ? isActive === 'true' : undefined,
-        search,
-      },
-    );
+    return this.cityService.findAll(pageNum, limitNum, orderBy, orderDir, {
+      countryId: countryId ? parseInt(countryId) : undefined,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+      search,
+    });
   }
 
+  @Get('public/:id')
+  findOnePublic(@Param('id', ParseIntPipe) id: number) {
+    return this.cityService.findOne(id);
+  }
   @Get('public')
   async findAllClient(
     @Query('page') page?: string,
@@ -103,11 +104,11 @@ export class CityController {
   }
 
   @Get('search')
-  searchCities(
-    @Query('q') searchTerm: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.cityService.searchCities(searchTerm, limit ? parseInt(limit) : 10);
+  searchCities(@Query('q') searchTerm: string, @Query('limit') limit?: string) {
+    return this.cityService.searchCities(
+      searchTerm,
+      limit ? parseInt(limit) : 10,
+    );
   }
 
   @Get('popular')

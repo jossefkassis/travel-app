@@ -12,7 +12,11 @@ import {
   Param,
   Delete,
   ParseIntPipe,
+  Req,
+  Res,
+  NotFoundException,
 } from '@nestjs/common';
+import { Request, Response } from 'express';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { StorageService } from './storage.service';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
@@ -20,6 +24,33 @@ import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 @Controller('storage')
 export class StorageController {
   constructor(private readonly storageServise: StorageService) {}
+
+  @Get('media/:folder/:key')
+  async streamWithRange(
+    @Param('folder') folder: string,
+    @Param('key') key: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const range = req.headers.range as string;
+
+    // delegate to your service so you keep controller thin
+    const { Body, ContentType, ContentLength } =
+      await this.storageServise.getObjectStream(`${folder}/${key}`, range);
+
+    if (!Body) {
+      throw new NotFoundException('Image not found');
+    }
+
+    res.status(200).set({
+        'Content-Type': ContentType!,
+        'Content-Length': ContentLength?.toString() ?? undefined,
+        'Accept-Ranges': 'bytes',
+      });
+
+    (Body as NodeJS.ReadableStream).pipe(res as any);
+  }
+  
   @UseGuards(JwtAuthGuard)
   @Post('admin/upload-public')
   @UseInterceptors(FilesInterceptor('images'))
@@ -31,6 +62,7 @@ export class StorageController {
     )
     files: Array<Express.Multer.File>,
   ) {
+    console.log("reseved",files)
     return await this.storageServise.publicUpload(files);
   }
 

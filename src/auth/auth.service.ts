@@ -18,6 +18,7 @@ import { ConfigService } from '@nestjs/config';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { StorageService } from 'src/storage/storage.service';
+import { FavouritesService } from 'src/favourites/favourites.service';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +27,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly storageService: StorageService,
+    private readonly favouritesService: FavouritesService,
   ) {}
 
   /**
@@ -142,12 +144,19 @@ export class AuthService {
       avatarUrl = `/${fileObject.bucket}/${fileObject.objectKey}`;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { items: flatFavs } = await this.favouritesService.listMine(
+      user.id,
+      undefined, // no type filter → get all types
+      1,
+      1000, // adjust if you expect >1000 favourites
+    );
+
     const { userAvatars, role, ...userWithoutAvatar } = userWithRelations; // Destructure role for separate use
     return {
       user: {
         ...userWithoutAvatar,
         avatar: avatarUrl,
+        favourites: flatFavs,
         role: role?.name, // Return the role name
       },
       tokens: await this.generateTokens(user),
@@ -318,6 +327,20 @@ export class AuthService {
         currency: 'USD',
       })
       .returning();
+
+    // create welcome notification
+    try {
+      await this.db.insert(schema.notifications).values({
+        userId: user.id,
+        title: 'Welcome to our service',
+        body: 'Thanks for signing up! Explore trips and book your next adventure.',
+        data: JSON.stringify({ type: 'WELCOME' }),
+      });
+    } catch (e) {
+      // non-fatal: log and continue
+      // eslint-disable-next-line no-console
+      console.warn('Failed to write welcome notification', e);
+    }
 
     // Re-fetch user with role relation to include the role name in the response
     const userWithRole = await this.db.query.users.findFirst({

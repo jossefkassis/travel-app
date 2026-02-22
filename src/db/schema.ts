@@ -36,6 +36,14 @@ export const bookingStatusEnum = pgEnum('booking_status', [
   'PENDONG',
   'CONFIRMED',
   'CANCELLED',
+  'POSTED',
+  'REFUNDED',
+]);
+export const paymentStatusEnum = pgEnum('booking_status', [
+  'CONFIRMED',
+  'CANCELLED',
+  'POSTED',
+  'REFUNDED',
 ]);
 export const txSourceEnum = pgEnum('tx_source', [
   'TOPUP',
@@ -77,6 +85,13 @@ export const reservationSourceEnum = pgEnum('reservation_source', [
   'PREDEFINED_TRIP',
   'CUSTOM_TRIP',
   'HOTEL_ONLY',
+]);
+
+export const balanceRequestStatusEnum = pgEnum('balance_request_status', [
+  'PENDING',
+  'APPROVED',
+  'REJECTED',
+  'CANCELLED',
 ]);
 
 /* helper */
@@ -204,6 +219,12 @@ export const userTransactions = pgTable(
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(), // + / –
     source: txSourceEnum('source').notNull(),
     status: txStatusEnum('status').default('POSTED'),
+    balanceBefore: numeric('balance_before', { precision: 12, scale: 2 }),
+    balanceAfter: numeric('balance_after', { precision: 12, scale: 2 }),
+    balanceRequestId: integer('balance_request_id').references(
+      () => balanceRequests.id,
+      { onDelete: 'set null' },
+    ),
     note: text('note'),
     orderId: integer('order_id').references(() => orders.id, {
       onDelete: 'set null', // If order is deleted, transaction remains
@@ -212,7 +233,28 @@ export const userTransactions = pgTable(
   },
   (t) => [index('tx_wallet_idx').on(t.walletId)],
 );
-
+export const balanceRequests = pgTable(
+  'balance_requests',
+  {
+    id: serial('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    note: text('note'),
+    status: balanceRequestStatusEnum('status').notNull().default('PENDING'),
+    processedBy: uuid('processed_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [
+    index('balance_requests_user_idx').on(t.userId),
+    index('balance_requests_status_idx').on(t.status),
+  ],
+);
 export const userPushTokens = pgTable(
   'user_push_tokens',
   {
@@ -557,6 +599,7 @@ export const roomReservations = pgTable(
       { onDelete: 'set null' },
     ),
     createdAt: timestamp('created_at').defaultNow().notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
   },
   (t) => [
     check('rooms_positive', sql`${t.roomsBooked} > 0`),
@@ -689,6 +732,9 @@ export const trips = pgTable(
   {
     id: serial('id').primaryKey(),
     name: varchar('name', { length: 120 }).notNull(),
+    cityId: integer('city_id').references(() => cities.id, {
+      onDelete: 'restrict', // Don't delete city if POIs exist
+    }),
     createdBy: uuid('created_by') // Added reference to the user who created the custom trip
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
@@ -735,7 +781,15 @@ export const trips = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
-  (t) => [uniqueIndex('trips_name_idx').on(t.name)],
+  (t) => [
+    uniqueIndex('trips_name_idx').on(t.name),
+    index('trips_city_idx').on(t.cityId),
+    index('trips_start_date_idx').on(t.startDate),
+    index('trips_end_date_idx').on(t.endDate),
+    index('trips_price_per_person_idx').on(t.pricePerPerson),
+    index('trips_min_people_idx').on(t.minPeople),
+    index('trips_max_people_idx').on(t.maxPeople),
+  ],
 );
 
 export const tripDays = pgTable(
@@ -806,6 +860,8 @@ export const guideAvailability = pgTable(
       .notNull(),
     startDate: date('start_date').notNull(),
     endDate: date('end_date').notNull(),
+    source: reservationSourceEnum('source').notNull().default('PREDEFINED_TRIP'),
+    sourceId: integer('source_id'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => [index('guide_availability_guide_idx').on(t.guideId)],
@@ -848,8 +904,12 @@ export const tripBookings = pgTable(
     userId: uuid('user_id')
       .references(() => users.id, { onDelete: 'cascade' })
       .notNull(),
+    seats: integer('seats').notNull(),                       // ← new
+    source: reservationSourceEnum('source').notNull(),      // ← new
+    sourceId: integer('source_id'),                          // ← new (e.g. orderId)
     total: numeric('total', { precision: 10, scale: 2 }).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
+    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
   (t) => [
@@ -1155,6 +1215,7 @@ export const chatMembers = pgTable(
   (t) => [
     index('chat_members_chat_room_idx').on(t.chatRoomId),
     index('chat_members_user_idx').on(t.userId),
+    uniqueIndex('chat_members_room_user_uix').on(t.chatRoomId,t.userId),
   ],
 );
 export const chatMessages = pgTable(
@@ -1372,6 +1433,7 @@ export const citiesRelations = relations(cities, ({ one, many }) => ({
   hotels: many(hotels),
   pois: many(pois),
   airports: many(airports),
+  trips: many(trips),
 }));
 
 export const cityMealPricesRelations = relations(cityMealPrices, ({ one }) => ({
@@ -1480,6 +1542,10 @@ export const tripToTagsRelations = relations(tripToTags, ({ one }) => ({
 }));
 
 export const tripsRelations = relations(trips, ({ one, many }) => ({
+  city: one(cities, {
+    fields: [trips.cityId],
+    references: [cities.id],
+  }),
   createdBy: one(users, {
     fields: [trips.createdBy],
     references: [users.id],

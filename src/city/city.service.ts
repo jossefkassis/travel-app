@@ -1,11 +1,19 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { DRIZLE } from 'src/database.module';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
-import { and, eq, ilike, desc, asc, sql, isNotNull, or, isNull } from 'drizzle-orm';
+import { and, eq, ilike, desc, asc, sql, or, isNull } from 'drizzle-orm';
 import { CreateCityDto } from './dto/create-city.dto';
 import { UpdateCityDto } from './dto/update-city.dto';
-import { LatLon } from 'src/interfaces/location.dto';
 import { HotelsService } from '../hotels/hotels.service';
 import { AttractionsService } from '../attractions/attractions.service';
 
@@ -13,13 +21,29 @@ import { AttractionsService } from '../attractions/attractions.service';
 export class CityService {
   constructor(
     @Inject(DRIZLE) private db: NodePgDatabase<typeof schema>,
-    @Inject(forwardRef(() => HotelsService)) private readonly hotelsService: HotelsService,
-    @Inject(forwardRef(() => AttractionsService)) private readonly attractionsService: AttractionsService,
+    @Inject(forwardRef(() => HotelsService))
+    private readonly hotelsService: HotelsService,
+    @Inject(forwardRef(() => AttractionsService))
+    private readonly attractionsService: AttractionsService,
   ) {}
 
   async create(createCityDto: CreateCityDto) {
-    const { name, countryId, location, is_active = true, description, avgMealPrice, radius, mealPricePerPerson, transportRatePerKm } = createCityDto;
-    if (!location || typeof location.lat !== 'number' || typeof location.lon !== 'number') {
+    const {
+      name,
+      countryId,
+      location,
+      is_active = true,
+      description,
+      avgMealPrice,
+      radius,
+      mealPricePerPerson,
+      transportRatePerKm,
+    } = createCityDto;
+    if (
+      !location ||
+      typeof location.lat !== 'number' ||
+      typeof location.lon !== 'number'
+    ) {
       throw new BadRequestException('location with lat and lon is required');
     }
 
@@ -44,20 +68,26 @@ export class CityService {
     });
 
     if (existingCity) {
-      throw new BadRequestException('City with this name already exists in this country');
+      throw new BadRequestException(
+        'City with this name already exists in this country',
+      );
     }
 
     // Create city with location
-    const [city] = await this.db.insert(schema.cities).values({
-      name,
-      countryId,
-      slug,
-      center: sql`ST_SetSRID(ST_MakePoint(${location.lon}, ${location.lat}), 4326)`,
-      isActive: is_active,
-      description,
-      avgMealPrice: avgMealPrice !== undefined ? avgMealPrice.toString() : undefined,
-      radius: radius !== undefined ? radius.toString() : undefined,
-    }).returning();
+    const [city] = await this.db
+      .insert(schema.cities)
+      .values({
+        name,
+        countryId,
+        slug,
+        center: sql`ST_SetSRID(ST_MakePoint(${location.lon}, ${location.lat}), 4326)`,
+        isActive: is_active,
+        description,
+        avgMealPrice:
+          avgMealPrice !== undefined ? avgMealPrice.toString() : undefined,
+        radius: radius !== undefined ? radius.toString() : undefined,
+      })
+      .returning();
 
     if (city && mealPricePerPerson !== undefined) {
       await this.db.insert(schema.cityMealPrices).values({
@@ -84,7 +114,10 @@ export class CityService {
           role: 'MAIN',
         });
       }
-      if (createCityDto.galleryImageIds && Array.isArray(createCityDto.galleryImageIds)) {
+      if (
+        createCityDto.galleryImageIds &&
+        Array.isArray(createCityDto.galleryImageIds)
+      ) {
         for (const imgId of createCityDto.galleryImageIds) {
           await this.db.insert(schema.attachments).values({
             objectId: imgId,
@@ -99,7 +132,9 @@ export class CityService {
     return city;
   }
 
-  async getCityEntityTypeId(tx: NodePgDatabase<typeof schema> = this.db): Promise<number> {
+  async getCityEntityTypeId(
+    tx: NodePgDatabase<typeof schema> = this.db,
+  ): Promise<number> {
     const rec = await tx.query.entityTypes.findFirst({
       where: eq(schema.entityTypes.name, 'city'),
       columns: { id: true },
@@ -112,7 +147,9 @@ export class CityService {
     return rec.id;
   }
 
-  async getHotelEntityTypeId(tx: NodePgDatabase<typeof schema> = this.db): Promise<number> {
+  async getHotelEntityTypeId(
+    tx: NodePgDatabase<typeof schema> = this.db,
+  ): Promise<number> {
     const rec = await tx.query.entityTypes.findFirst({
       where: eq(schema.entityTypes.name, 'hotel'),
       columns: { id: true },
@@ -125,7 +162,9 @@ export class CityService {
     return rec.id;
   }
 
-  async getPoiEntityTypeId(tx: NodePgDatabase<typeof schema> = this.db): Promise<number> {
+  async getPoiEntityTypeId(
+    tx: NodePgDatabase<typeof schema> = this.db,
+  ): Promise<number> {
     const rec = await tx.query.entityTypes.findFirst({
       where: eq(schema.entityTypes.name, 'poi'),
       columns: { id: true },
@@ -170,7 +209,7 @@ export class CityService {
     orderDir: 'asc' | 'desc' = 'desc',
     filters: { countryId?: number; isActive?: boolean; search?: string } = {},
   ) {
-    console.log("filters.search items", filters.search)
+    console.log('filters.search items', filters.search);
     const offset = (page - 1) * limit;
     const conditions: any[] = [];
     if (filters.countryId) {
@@ -183,8 +222,8 @@ export class CityService {
       conditions.push(
         or(
           ilike(schema.cities.name, `%${filters.search}%`),
-          ilike(schema.cities.description, `%${filters.search}%`)
-        )
+          ilike(schema.cities.description, `%${filters.search}%`),
+        ),
       );
     }
     conditions.push(sql`"cities"."deleted_at" IS NULL`);
@@ -240,7 +279,10 @@ export class CityService {
     filters: { countryId?: number; search?: string } = {},
   ) {
     // Use the same logic as findAll, but only active cities
-    return this.findAll(page, limit, orderBy, orderDir, { ...filters, isActive: true });
+    return this.findAll(page, limit, orderBy, orderDir, {
+      ...filters,
+      isActive: true,
+    });
   }
 
   async findAllTrashed(
@@ -259,8 +301,8 @@ export class CityService {
       conditions.push(
         or(
           ilike(schema.cities.name, `%${filters.search}%`),
-          ilike(schema.cities.description, `%${filters.search}%`)
-        )
+          ilike(schema.cities.description, `%${filters.search}%`),
+        ),
       );
     }
     const totalCountResult = await this.db
@@ -287,25 +329,36 @@ export class CityService {
 
     // Fetch city entityTypeId for images
     const cityEntityTypeId = await this.getCityEntityTypeId();
-    const dataWithImages = await Promise.all(data.map(async (city) => {
-      // Get images (main and gallery)
-      const attachments = await this.db.query.attachments.findMany({
-        where: and(
-          eq(schema.attachments.entityTypeId, cityEntityTypeId),
-          eq(schema.attachments.entityId, city.id),
-        ),
-        with: { fileObject: true },
-      });
-      let mainImage: any = null;
-      const galleryImages: any[] = [];
-      for (const att of attachments) {
-        if (att.role === 'MAIN' && att.fileObject) mainImage = att.fileObject;
-        if (att.role === 'GALLERY' && att.fileObject) galleryImages.push(att.fileObject);
-      }
-      const mealPricePerPerson = city.cityMealPrices?.[0]?.mealPricePerPerson ?? null;
-      const transportRatePerKm = city.distanceRates?.[0]?.transportRatePerKm ?? null;
-      return { ...city, mainImage, galleryImages, mealPricePerPerson, transportRatePerKm };
-    }));
+    const dataWithImages = await Promise.all(
+      data.map(async (city) => {
+        // Get images (main and gallery)
+        const attachments = await this.db.query.attachments.findMany({
+          where: and(
+            eq(schema.attachments.entityTypeId, cityEntityTypeId),
+            eq(schema.attachments.entityId, city.id),
+          ),
+          with: { fileObject: true },
+        });
+        let mainImage: any = null;
+        const galleryImages: any[] = [];
+        for (const att of attachments) {
+          if (att.role === 'MAIN' && att.fileObject) mainImage = att.fileObject;
+          if (att.role === 'GALLERY' && att.fileObject)
+            galleryImages.push(att.fileObject);
+        }
+        const mealPricePerPerson =
+          city.cityMealPrices?.[0]?.mealPricePerPerson ?? null;
+        const transportRatePerKm =
+          city.distanceRates?.[0]?.transportRatePerKm ?? null;
+        return {
+          ...city,
+          mainImage,
+          galleryImages,
+          mealPricePerPerson,
+          transportRatePerKm,
+        };
+      }),
+    );
 
     return {
       data: dataWithImages,
@@ -326,7 +379,10 @@ export class CityService {
       .where(eq(schema.cities.id, id))
       .returning();
     if (!city) throw new NotFoundException(`City with ID ${id} not found.`);
-    return { message: `City with ID ${id} has been soft-deleted and deactivated.`, id: city.id };
+    return {
+      message: `City with ID ${id} has been soft-deleted and deactivated.`,
+      id: city.id,
+    };
   }
 
   async restore(id: number) {
@@ -336,7 +392,10 @@ export class CityService {
       .where(eq(schema.cities.id, id))
       .returning();
     if (!city) throw new NotFoundException(`City with ID ${id} not found.`);
-    return { message: `City with ID ${id} has been restored (deletedAt is now null, isActive remains false).`, id: city.id };
+    return {
+      message: `City with ID ${id} has been restored (deletedAt is now null, isActive remains false).`,
+      id: city.id,
+    };
   }
 
   async hardDelete(id: number) {
@@ -345,7 +404,10 @@ export class CityService {
       .where(eq(schema.cities.id, id))
       .returning();
     if (!city) throw new NotFoundException(`City with ID ${id} not found.`);
-    return { message: `City with ID ${id} has been hard-deleted.`, id: city.id };
+    return {
+      message: `City with ID ${id} has been hard-deleted.`,
+      id: city.id,
+    };
   }
 
   async findOne(id: number) {
@@ -373,9 +435,128 @@ export class CityService {
     const galleryImages: any[] = [];
     for (const att of attachments) {
       if (att.role === 'MAIN' && att.fileObject) mainImage = att.fileObject;
-      if (att.role === 'GALLERY' && att.fileObject) galleryImages.push(att.fileObject);
+      if (att.role === 'GALLERY' && att.fileObject)
+        galleryImages.push(att.fileObject);
     }
-    return { ...city, mainImage, galleryImages };
+    const [reviewsCountRow, favouritesCountRow, reviewsRaw, favouritesRaw] =
+      await Promise.all([
+        // count reviews
+        this.db
+          .select({ count: sql<number>`CAST(COUNT(*) AS INT)` })
+          .from(schema.reviews)
+          .where(
+            and(
+              eq(schema.reviews.entityTypeId, cityEntityTypeId),
+              eq(schema.reviews.entityId, id),
+              isNull(schema.reviews.deletedAt),
+            ),
+          ),
+
+        // count favourites
+        this.db
+          .select({ count: sql<number>`CAST(COUNT(*) AS INT)` })
+          .from(schema.favourites)
+          .where(
+            and(
+              eq(schema.favourites.entityTypeId, cityEntityTypeId),
+              eq(schema.favourites.entityId, id),
+              isNull(schema.favourites.deletedAt),
+            ),
+          ),
+
+        // reviews list w/ user+avatar
+        this.db
+          .select({
+            id: schema.reviews.id,
+            rating: schema.reviews.rating,
+            comment: schema.reviews.comment,
+            createdAt: schema.reviews.createdAt,
+            userId: schema.users.id,
+            userName: schema.users.name,
+            avatarBucket: schema.fileObjects.bucket,
+            avatarKey: schema.fileObjects.objectKey,
+          })
+          .from(schema.reviews)
+          .leftJoin(schema.users, eq(schema.users.id, schema.reviews.userId))
+          .leftJoin(
+            schema.userAvatars,
+            eq(schema.userAvatars.userId, schema.users.id),
+          )
+          .leftJoin(
+            schema.fileObjects,
+            eq(schema.fileObjects.id, schema.userAvatars.fileObjectId),
+          )
+          .where(
+            and(
+              eq(schema.reviews.entityTypeId, cityEntityTypeId),
+              eq(schema.reviews.entityId, id),
+              isNull(schema.reviews.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.reviews.createdAt))
+          .limit(50),
+
+        // favourites list w/ user+avatar
+        this.db
+          .select({
+            createdAt: schema.favourites.createdAt,
+            userId: schema.users.id,
+            userName: schema.users.name,
+            avatarBucket: schema.fileObjects.bucket,
+            avatarKey: schema.fileObjects.objectKey,
+          })
+          .from(schema.favourites)
+          .leftJoin(schema.users, eq(schema.users.id, schema.favourites.userId))
+          .leftJoin(
+            schema.userAvatars,
+            eq(schema.userAvatars.userId, schema.users.id),
+          )
+          .leftJoin(
+            schema.fileObjects,
+            eq(schema.fileObjects.id, schema.userAvatars.fileObjectId),
+          )
+          .where(
+            and(
+              eq(schema.favourites.entityTypeId, cityEntityTypeId),
+              eq(schema.favourites.entityId, id),
+              isNull(schema.favourites.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.favourites.createdAt)),
+      ]);
+
+    // 4) map into neat DTOs
+    const reviews = reviewsRaw.map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.createdAt,
+      user: {
+        id: r.userId!,
+        name: r.userName,
+        avatarUrl: r.avatarBucket ? `/${r.avatarBucket}/${r.avatarKey}` : null,
+      },
+    }));
+
+    const favourites = favouritesRaw.map((f) => ({
+      createdAt: f.createdAt,
+      user: {
+        id: f.userId!,
+        name: f.userName,
+        avatarUrl: f.avatarBucket ? `/${f.avatarBucket}/${f.avatarKey}` : null,
+      },
+    }));
+
+    // 5) return combined
+    return {
+      ...city,
+      mainImage,
+      galleryImages,
+      reviewsCount: reviewsCountRow[0]?.count ?? 0,
+      favouritesCount: favouritesCountRow[0]?.count ?? 0,
+      reviews,
+      favourites,
+    };
   }
 
   async findOneWithHotelsAndAttractions(id: number) {
@@ -396,6 +577,7 @@ export class CityService {
         description: true,
         countryId: true,
         radius: true,
+        center:true,
         avgMealPrice: true,
         isActive: true,
         avgRating: true,
@@ -422,15 +604,18 @@ export class CityService {
     const cityGalleryImages: any[] = [];
     for (const att of cityAttachments) {
       if (att.role === 'MAIN' && att.fileObject) cityMainImage = att.fileObject;
-      if (att.role === 'GALLERY' && att.fileObject) cityGalleryImages.push(att.fileObject);
+      if (att.role === 'GALLERY' && att.fileObject)
+        cityGalleryImages.push(att.fileObject);
     }
 
     // Get hotels and attractions using the service methods
     const hotels = await this.hotelsService.findAllByCityId(id);
     const attractions = await this.attractionsService.findAllByCityId(id);
 
-    const mealPricePerPerson = city.cityMealPrices?.[0]?.mealPricePerPerson ?? null;
-    const transportRatePerKm = city.distanceRates?.[0]?.transportRatePerKm ?? null;
+    const mealPricePerPerson =
+      city.cityMealPrices?.[0]?.mealPricePerPerson ?? null;
+    const transportRatePerKm =
+      city.distanceRates?.[0]?.transportRatePerKm ?? null;
 
     return {
       ...city,
@@ -540,23 +725,28 @@ export class CityService {
       updateData.radius = updateCityDto.radius;
     }
     // Update city
-    await this.db.update(schema.cities).set({
+    await this.db
+      .update(schema.cities)
+      .set({
         ...updateData,
         updatedAt: new Date(),
-    }).where(eq(schema.cities.id, id));
+      })
+      .where(eq(schema.cities.id, id));
 
     // Update attachments if new image IDs are provided
     const cityEntityTypeId = await this.getCityEntityTypeId();
     if (cityEntityTypeId) {
       if (updateCityDto.mainImageId) {
         // Remove old main image
-        await this.db.delete(schema.attachments).where(
-          and(
-            eq(schema.attachments.entityTypeId, cityEntityTypeId),
-            eq(schema.attachments.entityId, id),
-            eq(schema.attachments.role, 'MAIN'),
-          ),
-        );
+        await this.db
+          .delete(schema.attachments)
+          .where(
+            and(
+              eq(schema.attachments.entityTypeId, cityEntityTypeId),
+              eq(schema.attachments.entityId, id),
+              eq(schema.attachments.role, 'MAIN'),
+            ),
+          );
         // Add new main image
         await this.db.insert(schema.attachments).values({
           objectId: updateCityDto.mainImageId,
@@ -565,15 +755,20 @@ export class CityService {
           role: 'MAIN',
         });
       }
-      if (updateCityDto.galleryImageIds && Array.isArray(updateCityDto.galleryImageIds)) {
+      if (
+        updateCityDto.galleryImageIds &&
+        Array.isArray(updateCityDto.galleryImageIds)
+      ) {
         // Remove old gallery images
-        await this.db.delete(schema.attachments).where(
-          and(
-            eq(schema.attachments.entityTypeId, cityEntityTypeId),
-            eq(schema.attachments.entityId, id),
-            eq(schema.attachments.role, 'GALLERY'),
-          ),
-        );
+        await this.db
+          .delete(schema.attachments)
+          .where(
+            and(
+              eq(schema.attachments.entityTypeId, cityEntityTypeId),
+              eq(schema.attachments.entityId, id),
+              eq(schema.attachments.role, 'GALLERY'),
+            ),
+          );
         // Add new gallery images
         for (const imgId of updateCityDto.galleryImageIds) {
           await this.db.insert(schema.attachments).values({
@@ -587,12 +782,17 @@ export class CityService {
     }
     // Update cityMealPrices if provided
     if (updateCityDto.mealPricePerPerson !== undefined) {
-      const existingMealPrice = await this.db.query.cityMealPrices.findFirst({ where: eq(schema.cityMealPrices.cityId, id) });
+      const existingMealPrice = await this.db.query.cityMealPrices.findFirst({
+        where: eq(schema.cityMealPrices.cityId, id),
+      });
       if (existingMealPrice) {
-        await this.db.update(schema.cityMealPrices).set({
-          mealPricePerPerson: updateCityDto.mealPricePerPerson.toString(),
-          updatedAt: new Date(),
-        }).where(eq(schema.cityMealPrices.cityId, id));
+        await this.db
+          .update(schema.cityMealPrices)
+          .set({
+            mealPricePerPerson: updateCityDto.mealPricePerPerson.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.cityMealPrices.cityId, id));
       } else {
         await this.db.insert(schema.cityMealPrices).values({
           cityId: id,
@@ -602,12 +802,17 @@ export class CityService {
     }
     // Update distanceRates if provided
     if (updateCityDto.transportRatePerKm !== undefined) {
-      const existingRate = await this.db.query.distanceRates.findFirst({ where: eq(schema.distanceRates.cityId, id) });
+      const existingRate = await this.db.query.distanceRates.findFirst({
+        where: eq(schema.distanceRates.cityId, id),
+      });
       if (existingRate) {
-        await this.db.update(schema.distanceRates).set({
-          transportRatePerKm: updateCityDto.transportRatePerKm.toString(),
-          updatedAt: new Date(),
-        }).where(eq(schema.distanceRates.cityId, id));
+        await this.db
+          .update(schema.distanceRates)
+          .set({
+            transportRatePerKm: updateCityDto.transportRatePerKm.toString(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.distanceRates.cityId, id));
       } else {
         await this.db.insert(schema.distanceRates).values({
           cityId: id,
@@ -620,8 +825,6 @@ export class CityService {
   }
 
   async remove(id: number) {
-    const city = await this.findOne(id);
-
     // Check if city has related data
     const hasHotels = await this.db.query.hotels.findFirst({
       where: eq(schema.hotels.cityId, id),
@@ -636,7 +839,9 @@ export class CityService {
     });
 
     if (hasHotels || hasAirports || hasPois) {
-      throw new BadRequestException('Cannot delete city with related data. Consider deactivating instead.');
+      throw new BadRequestException(
+        'Cannot delete city with related data. Consider deactivating instead.',
+      );
     }
 
     await this.db
@@ -684,10 +889,7 @@ export class CityService {
     });
 
     const pois = await this.db.query.pois.findMany({
-      where: and(
-        eq(schema.pois.cityId, id),
-        eq(schema.pois.is_active, true),
-      ),
+      where: and(eq(schema.pois.cityId, id), eq(schema.pois.is_active, true)),
     });
 
     return {

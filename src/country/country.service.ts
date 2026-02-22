@@ -1,8 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 // src/countries/country.service.ts
 
 import {
   BadRequestException,
-  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
@@ -13,7 +13,16 @@ import { UpdateCountryDto } from './dto/update-country.dto';
 import { DRIZLE } from 'src/database.module';
 import * as schema from '../db/schema';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import { and, eq, sql, inArray, isNull, asc, desc, isNotNull } from 'drizzle-orm';
+import {
+  and,
+  eq,
+  sql,
+  inArray,
+  isNull,
+  asc,
+  desc,
+  isNotNull,
+} from 'drizzle-orm';
 import { CityService } from '../city/city.service';
 
 // --- Type Definitions ---
@@ -21,6 +30,11 @@ import { CityService } from '../city/city.service';
 type CountryRecord = typeof schema.countries.$inferSelect;
 type AttachmentSelect = typeof schema.attachments.$inferSelect;
 type FileObjectSelect = typeof schema.fileObjects.$inferSelect;
+
+type FavouriteDTO = {
+  userId: string | null;
+  createdAt: Date | null;
+};
 
 // The final output type that the controller expects
 export type CountryWithImages = Omit<CountryRecord, 'attachments'> & {
@@ -30,7 +44,12 @@ export type CountryWithImages = Omit<CountryRecord, 'attachments'> & {
 
 // Type for country with cities
 export type CountryWithCities = CountryWithImages & {
-  cities: any[]; // Using any[] since we'll get this from CityService
+  attachments?: any[]; // as you already return
+  cities: any[]; // from cityService
+  reviewsCount: number;
+  favouritesCount: number;
+  reviews: any[];
+  favourites: FavouriteDTO[];
 };
 
 // Type for the raw result of a LEFT JOIN query
@@ -46,7 +65,8 @@ type JoinedCountryAttachmentRow = {
 export class CountryService {
   constructor(
     @Inject(DRIZLE) private db: NodePgDatabase<typeof schema>,
-    @Inject(forwardRef(() => CityService)) private readonly cityService: CityService,
+    @Inject(forwardRef(() => CityService))
+    private readonly cityService: CityService,
   ) {}
 
   private async getCountryEntityTypeId(
@@ -316,6 +336,8 @@ export class CountryService {
 
   async findOneClient(id: number): Promise<CountryWithCities | null> {
     const entityTypeId = await this.getCountryEntityTypeId();
+
+    // 1) country + attachments
     const rawResults = await this.db
       .select()
       .from(schema.countries)
@@ -326,30 +348,147 @@ export class CountryService {
           eq(schema.attachments.entityTypeId, entityTypeId),
         ),
       )
-      .leftJoin(  
+      .leftJoin(
         schema.fileObjects,
         eq(schema.attachments.objectId, schema.fileObjects.id),
       )
       .where(
         and(
-          eq(schema.countries.id, id),      
+          eq(schema.countries.id, id),
           eq(schema.countries.is_active, true),
           isNull(schema.countries.deletedAt),
         ),
       );
 
-    if (rawResults.length === 0) {        
-      return null;
-    }
-
+    if (rawResults.length === 0) return null;
     const country = this.processJoinedCountryResults(rawResults)[0];
-    
-    // Get cities for this country using the city service
-    const citiesResult = await this.cityService.findAllClient(1, 1000, 'createdAt', 'desc', { countryId: id });
-    
+
+    // 2) cities
+    const citiesResult = await this.cityService.findAllClient(
+      1,
+      1000,
+      'createdAt',
+      'desc',
+      { countryId: id },
+    );
+
+    // 3) counts + enriched lists
+    const [reviewsCountRow, favouritesCountRow, reviewsRaw, favouritesRaw] =
+      await Promise.all([
+        // count reviews
+        this.db
+          .select({ count: sql<number>`cast(count(*) as int)` })
+          .from(schema.reviews)
+          .where(
+            and(
+              eq(schema.reviews.entityTypeId, entityTypeId),
+              eq(schema.reviews.entityId, id),
+              isNull(schema.reviews.deletedAt),
+            ),
+          ),
+
+        // count favourites
+        this.db
+          .select({ count: sql<number>`cast(count(*) as int)` })
+          .from(schema.favourites)
+          .where(
+            and(
+              eq(schema.favourites.entityTypeId, entityTypeId),
+              eq(schema.favourites.entityId, id),
+              isNull(schema.favourites.deletedAt),
+            ),
+          ),
+
+        // reviews list + user info + avatar
+        this.db
+          .select({
+            id: schema.reviews.id,
+            rating: schema.reviews.rating,
+            comment: schema.reviews.comment,
+            createdAt: schema.reviews.createdAt,
+            userId: schema.users.id,
+            userName: schema.users.name,
+            avatarBucket: schema.fileObjects.bucket,
+            avatarKey: schema.fileObjects.objectKey,
+          })
+          .from(schema.reviews)
+          .leftJoin(schema.users, eq(schema.users.id, schema.reviews.userId))
+          .leftJoin(
+            schema.userAvatars,
+            eq(schema.userAvatars.userId, schema.users.id),
+          )
+          .leftJoin(
+            schema.fileObjects,
+            eq(schema.fileObjects.id, schema.userAvatars.fileObjectId),
+          )
+          .where(
+            and(
+              eq(schema.reviews.entityTypeId, entityTypeId),
+              eq(schema.reviews.entityId, id),
+              isNull(schema.reviews.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.reviews.createdAt))
+          .limit(50),
+
+        // favourites list + user info + avatar
+        this.db
+          .select({
+            createdAt: schema.favourites.createdAt,
+            userId: schema.users.id,
+            userName: schema.users.name,
+            avatarBucket: schema.fileObjects.bucket,
+            avatarKey: schema.fileObjects.objectKey,
+          })
+          .from(schema.favourites)
+          .leftJoin(schema.users, eq(schema.users.id, schema.favourites.userId))
+          .leftJoin(
+            schema.userAvatars,
+            eq(schema.userAvatars.userId, schema.users.id),
+          )
+          .leftJoin(
+            schema.fileObjects,
+            eq(schema.fileObjects.id, schema.userAvatars.fileObjectId),
+          )
+          .where(
+            and(
+              eq(schema.favourites.entityTypeId, entityTypeId),
+              eq(schema.favourites.entityId, id),
+              isNull(schema.favourites.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.favourites.createdAt)),
+      ]);
+
+    // map into final shapes
+    const reviews: any[] = reviewsRaw.map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.createdAt,
+      user: {
+        id: r.userId!,
+        name: r.userName,
+        avatarUrl: r.avatarBucket ? `/${r.avatarBucket}/${r.avatarKey}` : null,
+      },
+    }));
+
+    const favourites: any[] = favouritesRaw.map((f) => ({
+      createdAt: f.createdAt,
+      user: {
+        id: f.userId!,
+        name: f.userName,
+        avatarUrl: f.avatarBucket ? `${f.avatarBucket}/${f.avatarKey}` : null,
+      },
+    }));
+
     return {
       ...country,
       cities: citiesResult.data,
+      reviewsCount: reviewsCountRow[0]?.count ?? 0,
+      favouritesCount: favouritesCountRow[0]?.count ?? 0,
+      reviews,
+      favourites,
     };
   }
 
@@ -634,7 +773,6 @@ export class CountryService {
       orderDir,
     };
   }
-
 
   async findAllTrashed(
     page: number = 1,

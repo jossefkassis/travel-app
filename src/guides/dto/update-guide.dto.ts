@@ -26,4 +26,4 @@ export class UpdateGuideDto {
   @IsString()
   @IsOptional()
   description?: string;
-} 
+}

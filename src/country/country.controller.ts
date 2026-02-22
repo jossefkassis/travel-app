@@ -22,7 +22,10 @@ import { UpdateCountryDto } from './dto/update-country.dto';
 import { CountryWithImages, CountryWithCities } from './country.service'; // Assuming you export this type from service
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { PermissionsGuard } from 'src/common/guards/permissions.guard';
-import { Permission, SetPermissions } from 'src/common/decorators/permissions.decorator';
+import {
+  Permission,
+  SetPermissions,
+} from 'src/common/decorators/permissions.decorator';
 
 @Controller('countries')
 @UseInterceptors(ClassSerializerInterceptor) // Automatically applies serialization rules from class-transformer
@@ -38,7 +41,6 @@ export class CountryController {
   }
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @SetPermissions(Permission.CountryRead)
-
   @Get()
   // No HttpCode needed, 200 OK is default for GET
   async findAll(
@@ -61,7 +63,12 @@ export class CountryController {
     console.log('Controller received :');
     const pageNum = page && !isNaN(Number(page)) ? parseInt(page, 10) : 1;
     const limitNum = limit && !isNaN(Number(limit)) ? parseInt(limit, 10) : 20;
-    return this.countryService.findAllClient(pageNum, limitNum, orderBy, orderDir);
+    return this.countryService.findAllClient(
+      pageNum,
+      limitNum,
+      orderBy,
+      orderDir,
+    );
   }
 
   @Get('public/:id')
@@ -89,7 +96,12 @@ export class CountryController {
   ) {
     const pageNum = page && !isNaN(Number(page)) ? parseInt(page, 10) : 1;
     const limitNum = limit && !isNaN(Number(limit)) ? parseInt(limit, 10) : 10;
-    return this.countryService.findAllTrashed(pageNum, limitNum, orderBy, orderDir);
+    return this.countryService.findAllTrashed(
+      pageNum,
+      limitNum,
+      orderBy,
+      orderDir,
+    );
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -106,7 +118,6 @@ export class CountryController {
   }
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @SetPermissions(Permission.CountryManage)
-
   @Put(':id')
   async update(
     @Param('id', ParseIntPipe) id: number,
@@ -120,39 +131,28 @@ export class CountryController {
     return this.countryService.update(id, updateCountryDto);
   }
 
-
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @SetPermissions(Permission.CountryManage)
   @Patch(':id/soft-delete')
-  async softDelete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async softDelete(@Param('id', ParseIntPipe) id: number) {
     return this.countryService.softDelete(id);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @SetPermissions(Permission.CountryManage)
   @Patch(':id/restore')
-  async restore(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async restore(@Param('id', ParseIntPipe) id: number) {
     return this.countryService.restore(id);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @SetPermissions(Permission.CountryManage)
   @Delete(':id/hard-delete')
-  async hardDelete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async hardDelete(@Param('id', ParseIntPipe) id: number) {
     return this.countryService.hardDelete(id);
   }
 
   // --- Client-facing (Public) Endpoints ---
   // These usually don't require authentication and might return less sensitive data.
   // We'll put them under a '/public' path for clarity.
- 
-
- 
-
 }

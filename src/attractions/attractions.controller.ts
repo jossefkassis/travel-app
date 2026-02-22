@@ -22,19 +22,79 @@ export class AttractionsController {
   constructor(private readonly attractionsService: AttractionsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Get all attractions with filtering and pagination' })
-  @ApiResponse({ status: 200, description: 'List of attractions retrieved successfully.' })
-  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page' })
-  @ApiQuery({ name: 'orderBy', required: false, enum: ['createdAt', 'name', 'price'], description: 'Order by field' })
-  @ApiQuery({ name: 'orderDir', required: false, enum: ['asc', 'desc'], description: 'Order direction' })
-  @ApiQuery({ name: 'cityId', required: false, type: Number, description: 'Filter by city ID' })
-  @ApiQuery({ name: 'poiTypeId', required: false, type: Number, description: 'Filter by POI type ID' })
-  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search in name and description' })
-  @ApiQuery({ name: 'isActive', required: false, type: Boolean, description: 'Filter by active status' })
-  @ApiQuery({ name: 'minPrice', required: false, type: Number, description: 'Minimum price filter' })
-  @ApiQuery({ name: 'maxPrice', required: false, type: Number, description: 'Maximum price filter' })
-  @ApiQuery({ name: 'tagIds', required: false, type: String, description: 'Comma-separated tag IDs to filter by' })
+  @ApiOperation({
+    summary: 'Get all attractions with filtering and pagination',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of attractions retrieved successfully.',
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    description: 'Page number',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    description: 'Items per page',
+  })
+  @ApiQuery({
+    name: 'orderBy',
+    required: false,
+    enum: ['createdAt', 'name', 'price'],
+    description: 'Order by field',
+  })
+  @ApiQuery({
+    name: 'orderDir',
+    required: false,
+    enum: ['asc', 'desc'],
+    description: 'Order direction',
+  })
+  @ApiQuery({
+    name: 'cityId',
+    required: false,
+    type: Number,
+    description: 'Filter by city ID',
+  })
+  @ApiQuery({
+    name: 'poiTypeId',
+    required: false,
+    type: Number,
+    description: 'Filter by POI type ID',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Search in name and description',
+  })
+  @ApiQuery({
+    name: 'isActive',
+    required: false,
+    type: Boolean,
+    description: 'Filter by active status',
+  })
+  @ApiQuery({
+    name: 'minPrice',
+    required: false,
+    type: Number,
+    description: 'Minimum price filter',
+  })
+  @ApiQuery({
+    name: 'maxPrice',
+    required: false,
+    type: Number,
+    description: 'Maximum price filter',
+  })
+  @ApiQuery({
+    name: 'tagIds',
+    required: false,
+    type: String,
+    description: 'Comma-separated tag IDs to filter by',
+  })
   async findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
@@ -54,10 +114,16 @@ export class AttractionsController {
     const orderByValue = orderBy || 'createdAt';
     const cityIdNum = cityId ? parseInt(cityId, 10) : undefined;
     const poiTypeIdNum = poiTypeId ? parseInt(poiTypeId, 10) : undefined;
-    const isActiveBool = isActive !== undefined ? isActive === 'true' : undefined;
+    const isActiveBool =
+      isActive !== undefined ? isActive === 'true' : undefined;
     const minPriceNum = minPrice ? parseFloat(minPrice) : undefined;
     const maxPriceNum = maxPrice ? parseFloat(maxPrice) : undefined;
-    const tagIdsArray = tagIds ? tagIds.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id)) : undefined;
+    const tagIdsArray = tagIds
+      ? tagIds
+          .split(',')
+          .map((id) => parseInt(id.trim(), 10))
+          .filter((id) => !isNaN(id))
+      : undefined;
 
     return this.attractionsService.findAll(
       pageNum,
@@ -78,7 +144,10 @@ export class AttractionsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get attraction by ID' })
-  @ApiResponse({ status: 200, description: 'Attraction retrieved successfully.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Attraction retrieved successfully.',
+  })
   @ApiResponse({ status: 404, description: 'Attraction not found.' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.attractionsService.findOne(id);
@@ -89,7 +158,10 @@ export class AttractionsController {
   @ApiResponse({ status: 201, description: 'Attraction created successfully.' })
   @HttpCode(HttpStatus.CREATED)
   async create(@Body() createAttractionDto: CreateAttractionDto) {
-    console.log('Controller received createAttractionDto:', createAttractionDto);
+    console.log(
+      'Controller received createAttractionDto:',
+      createAttractionDto,
+    );
     return this.attractionsService.create(createAttractionDto);
   }
 
@@ -111,4 +183,4 @@ export class AttractionsController {
   async remove(@Param('id', ParseIntPipe) id: number) {
     return this.attractionsService.remove(id);
   }
-} 
+}

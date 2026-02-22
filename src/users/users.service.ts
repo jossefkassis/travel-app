@@ -8,7 +8,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import * as schema from '../db/schema'; // Adjust path
-import { eq, or, and, count, asc, desc, SQL } from 'drizzle-orm';
+import { eq, or, and, count, asc, desc, SQL, ne } from 'drizzle-orm';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcryptjs';
 import { CreateUserAdminDto } from './dto/create-user-admin.dto';
@@ -21,6 +21,7 @@ import {
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { DRIZLE } from 'src/database.module';
 import { StorageService } from '../storage/storage.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class UsersService {
@@ -63,7 +64,7 @@ export class UsersService {
     }
 
     const avatarUrl = user.userAvatars?.fileObject
-      ? `/${user.userAvatars.fileObject.bucket}/${user.userAvatars.fileObject.objectKey}`
+      ? `/${user.userAvatars.fileObject.objectKey}`
       : null;
 
     const { userAvatars, role, ...rest } = user; // Destructure relations
@@ -74,7 +75,7 @@ export class UsersService {
     };
   }
 
-  async updateMe(userId: string, updateUserDto: UpdateUserDto) {
+  async updateMe(userId: string, updateUserDto: any) {
     const existingUser = await this.db.query.users.findFirst({
       where: eq(schema.users.id, userId),
     });
@@ -82,6 +83,10 @@ export class UsersService {
     if (!existingUser) {
       throw new NotFoundException('Logged-in user not found.');
     }
+
+    const avatarFile: Express.Multer.File | undefined = updateUserDto.__avatar;
+    // Remove helper property before updating DB
+    if (avatarFile) delete updateUserDto.__avatar;
 
     const [updatedUser] = await this.db
       .update(schema.users)
@@ -174,7 +179,7 @@ export class UsersService {
 
     const paginatedUsers = users.map((user) => {
       const avatarUrl = user.userAvatars?.fileObject
-        ? `/${user.userAvatars.fileObject.bucket}/${user.userAvatars.fileObject.objectKey}`
+        ? `/${user.userAvatars.fileObject.objectKey}`
         : null;
       const { userAvatars, role, ...rest } = user;
       return {
@@ -193,7 +198,7 @@ export class UsersService {
         totalItems,
         offset,
         limit,
-        roleId
+        roleId,
       },
     };
   }
@@ -230,7 +235,7 @@ export class UsersService {
     }
 
     const avatarUrl = user.userAvatars?.fileObject
-      ? `/${user.userAvatars.fileObject.bucket}/${user.userAvatars.fileObject.objectKey}`
+      ? `/${user.userAvatars.fileObject.objectKey}`
       : null;
 
     const { userAvatars, role, wallets, ...rest } = user;
@@ -245,7 +250,10 @@ export class UsersService {
     };
   }
 
-  async createUser(createUserDto: CreateUserAdminDto, avatar?: Express.Multer.File) {
+  async createUser(
+    createUserDto: CreateUserAdminDto,
+    avatar?: Express.Multer.File,
+  ) {
     // Check for existing email or username
     const existingUser = await this.db.query.users.findFirst({
       where: or(
@@ -311,7 +319,11 @@ export class UsersService {
     return this.findUserById(newUser.id); // Return the full user object with relations
   }
 
-  async updateUser(id: string, updateUserAdminDto: UpdateUserAdminDto, avatar?: Express.Multer.File) {
+  async updateUser(
+    id: string,
+    updateUserAdminDto: UpdateUserAdminDto,
+    avatar?: Express.Multer.File,
+  ) {
     const existingUser = await this.db.query.users.findFirst({
       where: eq(schema.users.id, id),
     });
@@ -369,20 +381,23 @@ export class UsersService {
       throw new BadRequestException('Failed to update user.');
     }
 
-    // Avatar upload logic
-    if (avatar) {
-      const fileName = `avatars/${updatedUser.id}${avatar.mimetype === 'image/svg+xml' ? '.svg' : '.png'}`;
-      await this.storageService.upload(fileName, avatar);
+    // Avatar upload logic for admin updateUser (uses `avatar` param)
+    if (typeof (global as any).__adminAvatar !== 'undefined') {
+      const adminAvatar = (global as any).__adminAvatar as Express.Multer.File;
+      const fileName = `avatars/${updatedUser.id}${adminAvatar.mimetype === 'image/svg+xml' ? '.svg' : '.png'}`;
+      await this.storageService.upload(fileName, adminAvatar);
       const [fileObject] = await this.db
         .insert(schema.fileObjects)
         .values({
           bucket: process.env.AWS_BUCKET_NAME!,
           objectKey: fileName,
-          mime: avatar.mimetype,
+          mime: adminAvatar.mimetype,
           scope: 'PUBLIC',
           ownerId: updatedUser.id,
         })
         .returning();
+      // Upsert user avatar (replace existing)
+      await this.db.delete(schema.userAvatars).where(eq(schema.userAvatars.userId, updatedUser.id));
       await this.db.insert(schema.userAvatars).values({
         userId: updatedUser.id,
         fileObjectId: fileObject.id,
@@ -390,6 +405,72 @@ export class UsersService {
     }
 
     return this.findUserById(updatedUser.id);
+  }
+  async changePassword(
+    userId: string,
+    dto: ChangePasswordDto,
+    currentJti?: string,
+  ) {
+    const user = await this.db.query.users.findFirst({
+      where: (u, { eq }) => eq(u.id, userId),
+      columns: { id: true, password: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(`User with ID "${userId}" not found.`);
+    }
+
+    // If user registered via OAuth and has no password yet
+    if (!user.password) {
+      throw new BadRequestException(
+        'This account does not have a password set.',
+      );
+    }
+
+    if (dto.newPassword !== dto.confirmNewPassword) {
+      throw new BadRequestException(
+        'New password and confirmation do not match.',
+      );
+    }
+
+    const ok = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!ok) {
+      throw new BadRequestException('Current password is incorrect.');
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException(
+        'New password must be different from the current password.',
+      );
+    }
+
+    // Hash new password
+    const hashed = await bcrypt.hash(dto.newPassword, 12);
+
+    // Update user password
+    await this.db
+      .update(schema.users)
+      .set({ password: hashed, updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
+
+    // Security: revoke all other sessions (keep current if jti provided)
+    if (currentJti) {
+      await this.db
+        .delete(schema.sessions)
+        .where(
+          and(
+            eq(schema.sessions.userId, userId),
+            ne(schema.sessions.jti, currentJti),
+          ),
+        );
+    } else {
+      // If we don’t know the current jti, revoke all sessions
+      await this.db
+        .delete(schema.sessions)
+        .where(eq(schema.sessions.userId, userId));
+    }
+
+    return { message: 'Password updated successfully' };
   }
 
   async deleteUser(id: string) {

@@ -1,4 +1,17 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  HttpCode,
+  HttpStatus,
+  UseInterceptors,
+  UploadedFile,
+  Query,
+} from '@nestjs/common';
 import { GuidesService } from './guides.service';
 import { CreateGuideDto } from './dto/create-guide.dto';
 import { UpdateGuideDto } from './dto/update-guide.dto';
@@ -31,11 +44,27 @@ export class GuidesController {
     );
   }
 
+  @Get('available')
+  async findAvailable(
+    @Query('cityId') cityId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.guidesService.findAvailable({
+      cityId: parseInt(cityId, 10),
+      startDate,
+      endDate,
+      page: page ? parseInt(page, 10) : 1,
+      limit: limit ? parseInt(limit, 10) : 10,
+    });
+  }
+
   @Get(':id')
   async findOne(@Param('id') id: string) {
     return this.guidesService.findOne(id);
   }
-
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -44,13 +73,14 @@ export class GuidesController {
     @Body() CreateGuideDto: CreateGuideDto,
     @UploadedFile() avatar?: Express.Multer.File,
   ) {
+    console.log('reached here', CreateGuideDto);
     return this.guidesService.create(CreateGuideDto, avatar);
   }
 
   @Patch(':id')
   @UseInterceptors(FileInterceptor('avatar'))
   async update(
-    @Param('id') id: string, 
+    @Param('id') id: string,
     @Body() updateGuideDto: UpdateGuideDto,
     @UploadedFile() avatar?: Express.Multer.File,
   ) {
@@ -61,4 +91,4 @@ export class GuidesController {
   async remove(@Param('id') id: string) {
     return this.guidesService.remove(id);
   }
-} 
+}

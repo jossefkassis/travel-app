@@ -11,6 +11,14 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { GuidesModule } from './guides/guides.module';
 import { HotelsModule } from './hotels/hotels.module';
 import { AttractionsModule } from './attractions/attractions.module';
+import { TripsModule } from './trips/trips.module';
+import { FavouritesModule } from './favourites/favourites.module';
+import { ReviewsModule } from './reviews/reviews.module';
+import { WalletModule } from './wallet/wallet.module';
+import { ChatModule } from './chat/chat.module';
+import { OrdersModule } from './orders/orders.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { HomeModule } from './home/home.module';
 
 @Module({
   imports: [
@@ -29,6 +37,14 @@ import { AttractionsModule } from './attractions/attractions.module';
     GuidesModule,
     HotelsModule,
     AttractionsModule,
+    TripsModule,
+    FavouritesModule,
+    ReviewsModule,
+    WalletModule,
+    ChatModule,
+    OrdersModule,
+    NotificationsModule,
+    HomeModule,
   ],
 })
 export class AppModule {}

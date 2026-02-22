@@ -3,6 +3,8 @@ import * as schema from '../db/schema';
 import { DRIZLE } from '../database.module';
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
+  GetObjectCommandOutput,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -17,7 +19,7 @@ export class StorageService {
     @Inject(DRIZLE) private readonly db: NodePgDatabase<typeof schema>,
     private readonly configServices: ConfigService,
   ) {}
-  private readonly s3Client = new S3Client({
+  readonly s3Client = new S3Client({
     region: process.env.AWS_REGION!,
     endpoint: process.env.AWS_ENDPOINT!,
     credentials: {
@@ -26,6 +28,18 @@ export class StorageService {
     },
     forcePathStyle: true, // important for MinIO
   });
+
+  async getObjectStream(
+    objectKey: string,
+    range?: string,
+  ): Promise<GetObjectCommandOutput> {
+    const cmd = new GetObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME!,
+      Key: objectKey,
+      ...(range && { Range: range }),
+    });
+    return this.s3Client.send(cmd);
+  }
 
   async upload(fileName: string, file: Express.Multer.File) {
     await this.s3Client.send(

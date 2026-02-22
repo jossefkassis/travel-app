@@ -8,6 +8,7 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { LocalStrategy } from './strategies/local.strategy';
 import { StorageModule } from 'src/storage/storage.module';
+import { FavouritesModule } from 'src/favourites/favourites.module';
 // import { GoogleStrategy } from './strategies/google.strategy';
 // import { FacebookStrategy } from './strategies/facebook.strategy';
 
@@ -25,9 +26,10 @@ import { StorageModule } from 'src/storage/storage.module';
     }),
     DatabaseModule,
     StorageModule,
+    FavouritesModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, LocalStrategy],
-  exports: [PassportModule, JwtStrategy],
+  exports: [PassportModule, JwtStrategy, JwtModule],
 })
 export class AuthModule {}

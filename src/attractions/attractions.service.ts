@@ -252,6 +252,7 @@ export class AttractionsService {
         ratingCount: true,
         createdAt: true,
         updatedAt: true,
+        location:true,
         deletedAt: true,
       },
     });
@@ -294,11 +295,125 @@ export class AttractionsService {
     });
     const tags = tagAssociations.map(assoc => assoc.tag);
 
+    // Fetch reviews and favourites counts and lists (with user+avatar)
+    const poiEntityTypeId = await this.getPoiEntityTypeId();
+    const [reviewsCountRow, favouritesCountRow, reviewsRaw, favouritesRaw] =
+      await Promise.all([
+        // count reviews
+        this.db
+          .select({ count: sql<number>`CAST(COUNT(*) AS INT)` })
+          .from(schema.reviews)
+          .where(
+            and(
+              eq(schema.reviews.entityTypeId, poiEntityTypeId),
+              eq(schema.reviews.entityId, poi.id),
+              isNull(schema.reviews.deletedAt),
+            ),
+          ),
+
+        // count favourites
+        this.db
+          .select({ count: sql<number>`CAST(COUNT(*) AS INT)` })
+          .from(schema.favourites)
+          .where(
+            and(
+              eq(schema.favourites.entityTypeId, poiEntityTypeId),
+              eq(schema.favourites.entityId, poi.id),
+              isNull(schema.favourites.deletedAt),
+            ),
+          ),
+
+        // reviews list w/ user+avatar
+        this.db
+          .select({
+            id: schema.reviews.id,
+            rating: schema.reviews.rating,
+            comment: schema.reviews.comment,
+            createdAt: schema.reviews.createdAt,
+            userId: schema.users.id,
+            userName: schema.users.name,
+            avatarBucket: schema.fileObjects.bucket,
+            avatarKey: schema.fileObjects.objectKey,
+          })
+          .from(schema.reviews)
+          .leftJoin(schema.users, eq(schema.users.id, schema.reviews.userId))
+          .leftJoin(
+            schema.userAvatars,
+            eq(schema.userAvatars.userId, schema.users.id),
+          )
+          .leftJoin(
+            schema.fileObjects,
+            eq(schema.fileObjects.id, schema.userAvatars.fileObjectId),
+          )
+          .where(
+            and(
+              eq(schema.reviews.entityTypeId, poiEntityTypeId),
+              eq(schema.reviews.entityId, poi.id),
+              isNull(schema.reviews.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.reviews.createdAt))
+          .limit(50),
+
+        // favourites list w/ user+avatar
+        this.db
+          .select({
+            createdAt: schema.favourites.createdAt,
+            userId: schema.users.id,
+            userName: schema.users.name,
+            avatarBucket: schema.fileObjects.bucket,
+            avatarKey: schema.fileObjects.objectKey,
+          })
+          .from(schema.favourites)
+          .leftJoin(schema.users, eq(schema.users.id, schema.favourites.userId))
+          .leftJoin(
+            schema.userAvatars,
+            eq(schema.userAvatars.userId, schema.users.id),
+          )
+          .leftJoin(
+            schema.fileObjects,
+            eq(schema.fileObjects.id, schema.userAvatars.fileObjectId),
+          )
+          .where(
+            and(
+              eq(schema.favourites.entityTypeId, poiEntityTypeId),
+              eq(schema.favourites.entityId, poi.id),
+              isNull(schema.favourites.deletedAt),
+            ),
+          )
+          .orderBy(desc(schema.favourites.createdAt)),
+      ]);
+
+    const reviews = reviewsRaw.map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.createdAt,
+      user: {
+        id: r.userId!,
+        name: r.userName,
+        avatarUrl: r.avatarBucket ? `/${r.avatarBucket}/${r.avatarKey}` : null,
+      },
+    }));
+
+    const favourites = favouritesRaw.map((f) => ({
+      createdAt: f.createdAt,
+      user: {
+        id: f.userId!,
+        name: f.userName,
+        avatarUrl: f.avatarBucket ? `/${f.avatarBucket}/${f.avatarKey}` : null,
+      },
+    }));
+
     return {
       ...poi,
       mainImage,
       galleryImages,
       tags,
+      reviewsCount: reviewsCountRow[0]?.count ?? 0,
+      favouritesCount: favouritesCountRow[0]?.count ?? 0,
+      reviews,
+      favourites,
     };
   }
 
@@ -755,6 +870,7 @@ export class AttractionsService {
         is_active: true,
         avgRating: true,
         ratingCount: true,
+        location:true,
         createdAt: true,
         updatedAt: true,
         deletedAt: true,

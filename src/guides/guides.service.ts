@@ -1,4 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException, Inject, ConflictException, forwardRef } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import {
+  Injectable,
+  NotFoundException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
 import { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import * as schema from '../db/schema';
 import { DRIZLE } from '../database.module';
@@ -6,14 +16,16 @@ import { CreateGuideDto } from './dto/create-guide.dto';
 import { UpdateGuideDto } from './dto/update-guide.dto';
 import { UsersService } from '../users/users.service';
 import { CityService } from '../city/city.service';
-import { eq, and, sql, asc, desc } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, not, exists } from 'drizzle-orm';
 
 @Injectable()
 export class GuidesService {
   constructor(
     @Inject(DRIZLE) private readonly db: NodePgDatabase<typeof schema>,
-    @Inject(forwardRef(() => UsersService)) private readonly usersService: UsersService,
-    @Inject(forwardRef(() => CityService)) private readonly cityService: CityService,
+    @Inject(forwardRef(() => UsersService))
+    private readonly usersService: UsersService,
+    @Inject(forwardRef(() => CityService))
+    private readonly cityService: CityService,
   ) {}
 
   async findAll(
@@ -25,7 +37,7 @@ export class GuidesService {
   ) {
     const offset = (page - 1) * limit;
     const conditions: any[] = [];
-    
+
     if (filters.cityId) {
       conditions.push(eq(schema.guides.cityId, filters.cityId));
     }
@@ -57,14 +69,14 @@ export class GuidesService {
         .limit(limit)
         .offset(offset)
         .orderBy(orderExpr);
-      
+
       // Extract guide data from join result
-      guides = guides.map(result => result.guides);
+      guides = guides?.map((result: { guides: any }) => result?.guides);
     } else {
       // Simple query for other order columns
       guides = await this.db.query.guides.findMany({
         where: conditions.length ? and(...conditions) : undefined,
-        with: { user: true },
+        with: { user: true, guideAvailability: true },
         limit,
         offset,
         orderBy: [orderExpr],
@@ -81,7 +93,7 @@ export class GuidesService {
           user,
           city,
         };
-      })
+      }),
     );
 
     return {
@@ -101,20 +113,19 @@ export class GuidesService {
       where: (guides, { eq }) => eq(guides.id, id),
       with: { user: true },
     });
-    
+
     if (!guide) throw new NotFoundException('Guide not found');
-    
+
     // Enrich with user and city data using existing services
     const user = await this.usersService.findMe(guide.userId);
     const city = await this.cityService.findOne(guide.cityId);
-    
+
     return {
       ...guide,
       user,
       city,
     };
   }
-
 
   async create(dto: CreateGuideDto, avatar?: Express.Multer.File) {
     // Create user data from flat DTO
@@ -126,18 +137,21 @@ export class GuidesService {
       phone: dto.phone,
       roleId: 3,
     };
-    
+
     // Create user with guide role and avatar
     const user = await this.usersService.createUser(userData, avatar);
-    
+
     // Create guide data
-    const [guide] = await this.db.insert(schema.guides).values({
-      userId: user.id,
-      pricePerDay: dto.pricePerDay.toString(),
-      description: dto.description,
-      cityId: dto.cityId,
-    }).returning();
-    
+    const [guide] = await this.db
+      .insert(schema.guides)
+      .values({
+        userId: user.id,
+        pricePerDay: dto.pricePerDay.toString(),
+        description: dto.description,
+        cityId: dto.cityId,
+      })
+      .returning();
+
     return this.findOne(guide.id);
   }
 
@@ -146,7 +160,7 @@ export class GuidesService {
     const guide = await this.db.query.guides.findFirst({
       where: (guides, { eq }) => eq(guides.id, id),
     });
-    
+
     if (!guide) throw new NotFoundException('Guide not found');
 
     // Update user data if provided
@@ -161,13 +175,18 @@ export class GuidesService {
 
     // Update guide data if provided
     const guideUpdateData: any = {};
-    if (dto.pricePerDay !== undefined) guideUpdateData.pricePerDay = dto.pricePerDay.toString();
-    if (dto.description !== undefined) guideUpdateData.description = dto.description;
+    if (dto.pricePerDay !== undefined)
+      guideUpdateData.pricePerDay = dto.pricePerDay.toString();
+    if (dto.description !== undefined)
+      guideUpdateData.description = dto.description;
     if (dto.cityId !== undefined) guideUpdateData.cityId = dto.cityId;
     guideUpdateData.updatedAt = new Date();
 
     if (Object.keys(guideUpdateData).length > 0) {
-      await this.db.update(schema.guides).set(guideUpdateData).where(eq(schema.guides.id, id));
+      await this.db
+        .update(schema.guides)
+        .set(guideUpdateData)
+        .where(eq(schema.guides.id, id));
     }
 
     return this.findOne(id);
@@ -178,19 +197,78 @@ export class GuidesService {
     const guide = await this.db.query.guides.findFirst({
       where: (guides, { eq }) => eq(guides.id, id),
     });
-    
+
     if (!guide) throw new NotFoundException('Guide not found');
-    
+
     // Delete the guide record
     await this.db.delete(schema.guides).where(eq(schema.guides.id, id));
-    
+
     // Delete the associated user
     await this.usersService.deleteUser(guide.userId);
-    
-    return { 
+
+    return {
       message: `Guide with ID ${id} and associated user have been deleted successfully.`,
       deletedGuideId: id,
-      deletedUserId: guide.userId 
+      deletedUserId: guide.userId,
     };
   }
-} 
+
+  async findAvailable(filters: {
+    cityId: number;
+    startDate: string;
+    endDate: string;
+    page: number;
+    limit: number;
+  }) {
+    const { cityId, startDate, endDate, page, limit } = filters;
+    const offset = (page - 1) * limit;
+
+    // correlated subquery: "is there a booking for this guide that overlaps?"
+    const busy = this.db
+      .select()
+      .from(schema.guideAvailability)
+      .where(
+        and(
+          eq(schema.guideAvailability.guideId, schema.guides.id),
+          // overlap predicate
+          sql`${schema.guideAvailability.startDate} <= ${endDate}`,
+          sql`${schema.guideAvailability.endDate}   >= ${startDate}`,
+        ),
+      );
+
+    // main query: guides in the city AND NOT EXISTS an overlapping availability
+    const rows = await this.db
+      .select({ guide: schema.guides })
+      .from(schema.guides)
+      .where(and(eq(schema.guides.cityId, cityId), not(exists(busy))))
+      .limit(limit)
+      .offset(offset)
+      .orderBy(desc(schema.guides.createdAt));
+
+    // extract pure guide objects
+    const guides = rows.map((r) => r.guide);
+
+    // totalCount with the same filter
+    const [{ count: totalCount }] = await this.db
+      .select({ count: sql<number>`COUNT(*)` })
+      .from(schema.guides)
+      .where(and(eq(schema.guides.cityId, cityId), not(exists(busy))));
+
+    // enrich with user & city before returning
+    const data = await Promise.all(
+      guides.map(async (g) => {
+        const user = await this.usersService.findMe(g.userId);
+        const city = await this.cityService.findOne(g.cityId);
+        return { ...g, user, city };
+      }),
+    );
+
+    return {
+      data,
+      totalCount,
+      page,
+      limit,
+      totalPages: Math.ceil(totalCount / limit),
+    };
+  }
+}

@@ -31,13 +31,15 @@ import {
 } from 'src/common/decorators/permissions.decorator';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { AuthenticatedUser } from 'src/typings/express';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @ApiTags('Users')
 @ApiBearerAuth() // Indicates that this controller requires a bearer token
 @Controller('users')
-@UseGuards(JwtAuthGuard, PermissionsGuard) // Apply JWT Auth and Permissions Guard globally for the controller
+@UseGuards(JwtAuthGuard) // Apply JWT Auth globally; PermissionsGuard applied on admin methods
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
@@ -59,14 +61,24 @@ export class UsersController {
     status: 200,
     description: 'User profile updated successfully.',
   })
-  @SetPermissions(Permission.ProfileManageOwn) // Users can only manage their own profile
+  @UseInterceptors(FileInterceptor('avatar'))
   async updateMe(
-    @Request() req: { user: AuthenticatedUser },
+    @CurrentUser() user: AuthenticatedUser,
     @Body() updateUserDto: UpdateUserDto,
+    @UploadedFile() avatar?: Express.Multer.File,
   ) {
-    return this.usersService.updateMe(req.user.id, updateUserDto);
+    const payload: any = { ...updateUserDto };
+    if (avatar) payload.__avatar = avatar;
+    return this.usersService.updateMe(user.id, payload);
   }
 
+  @Patch('change-password')
+  async changePassword(
+    @CurrentUser() user: { id: string; jti?: string },
+    @Body() dto: ChangePasswordDto,
+  ) {
+    return this.usersService.changePassword(user.id, dto, user.jti);
+  }
   // --- Operations for Admin (managing all users) ---
 
   @Get()
